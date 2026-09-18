@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="自用 CV 与艺术实践页面模板，仅含占位内容。" />
+  <title>个人 CV 页面模板</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳至正文</a>
+  <article class="resume-page">
+    <header class="resume-header" aria-labelledby="page-title">
+      <hr class="resume-header__rule" aria-hidden="true" />
+      <section class="resume-header__profile" aria-label="个人简介">
+        <div class="resume-header__profile-copy">
+          <h1 id="page-title">你的名字</h1>
+          <p class="resume-header__intro">这里写你的兴趣、研究方向与实践方法。保留一段清晰的个人介绍，让读者先理解你关心的问题，再进入下面的经历与作品。</p>
+          <nav class="resume-actions" aria-label="简历链接">
+            <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub ↗</a>
+            <button id="download-cv" type="button">下载 CV ↗</button>
+          </nav>
+        </div>
+        <div class="resume-header__identity">
+          <figure class="portrait"><img src="assets/portrait.svg" alt="肖像占位图" /></figure>
+          <address class="contact-line"><a href="mailto:hello@example.com">hello@example.com</a></address>
+        </div>
+      </section>
+    </header>
+
+    <main id="main-content"><div class="cv-outline">
+      <section class="cv-group" id="education" aria-labelledby="education-title">
+        <div class="education-overview">
+          <header class="cv-group__heading"><h2 id="education-title">教育经历</h2></header>
+          <div class="cv-group__body school-list">
+            <details class="school-card" data-study-level="master">
+              <summary><span class="school-card__name">硕士院校</span><span class="school-card__degree">研究方向与学位</span></summary>
+              <div class="school-card__body">
+                <section class="course-block" aria-labelledby="courses-title"><div class="course-table-wrap"><table class="course-table"><tbody><tr>
+                  <th class="course-table__label" scope="row" id="courses-title">课程表</th>
+                  <td>第一学期课程 A<br />第一学期课程 B</td><td>第二学期课程 A<br />第二学期课程 B</td><td>第三学期课程 A<br />第三学期课程 B</td>
+                </tr></tbody></table></div></section>
+              </div>
+            </details>
+            <details class="school-card" data-study-level="bachelor">
+              <summary><span class="school-card__name">本科院校</span><span class="school-card__degree">专业与学位</span></summary>
+              <div class="school-card__body"><p class="school-description">这里可以补充学校介绍或其他信息。</p></div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="cv-group" id="research-plan" aria-labelledby="research-plan-title">
+        <header class="cv-group__heading"><h2 id="research-plan-title">研究计划</h2></header>
+        <div class="cv-group__body"><div class="paper-card__abstract research-plan__intro"><p class="research-plan__summary">这里是研究计划的简短介绍。说明研究问题、对象与方法，让读者可以在不打开长文的情况下了解方向。<button class="paper-fulltext research-plan__expand" type="button" data-paper-src="papers/sample.html" data-paper-title="研究计划">展开</button></p></div></div>
+      </section>
+
+      <section class="cv-group" id="research" aria-labelledby="research-title">
+        <header class="cv-group__heading"><h2 id="research-title">论文</h2></header>
+        <div class="cv-group__body paper-list">
+          <details class="paper-card"><summary><span>《论文标题》</span></summary><div class="paper-card__abstract"><p class="abstract-label">摘要</p><p>这里是论文摘要的占位文字。保持简洁，并用下方按钮打开正文示例。</p><div class="paper-card__actions"><button class="paper-fulltext" type="button" data-paper-src="papers/sample.html" data-paper-title="论文标题">阅读正文</button></div></div></details>
+        </div>
+      </section>
+
+      <section class="cv-group" id="art-practice" aria-labelledby="art-practice-title">
+        <header class="cv-group__heading"><h2 id="art-practice-title">艺术实践</h2></header>
+        <div class="cv-group__body practice-layout"><div class="portfolio-list" aria-label="作品区与艺术活动区">
+          <details class="portfolio-card"><summary><span>作品 A <span class="portfolio-work__year">2026</span></span></summary>
+            <template class="portfolio-card__template"><div class="portfolio-card__body"><div class="portfolio-card__intro"><p class="portfolio-card__meta">2026｜装置｜材料与媒介</p><p>这里写作品的概念、制作过程与观看方式。</p></div><div class="portfolio-card__images portfolio-images--mixed"><img src="assets/work-a.svg" width="1200" height="740" alt="作品 A，占位图片" loading="lazy" decoding="async" /></div></div></template>
+          </details>
+          <details class="portfolio-card"><summary><span>作品 B <span class="portfolio-work__year">2025</span></span></summary>
+            <template class="portfolio-card__template"><div class="portfolio-card__body"><div class="portfolio-card__intro"><p class="portfolio-card__meta">2025｜影像｜示例媒介</p><p>第二件作品的介绍放在这里。点击图像可放大。</p></div><div class="portfolio-card__images portfolio-images--mixed"><img src="assets/work-b.svg" width="1200" height="740" alt="作品 B，占位图片" loading="lazy" decoding="async" /></div></div></template>
+          </details>
+          <details class="portfolio-card" data-portfolio-tail="true"><summary><span>更多作品</span></summary>
+            <template class="portfolio-card__template"><div class="portfolio-card__body"><div class="portfolio-sublist">
+              <details class="portfolio-subcard"><summary><span>早期作品 <span class="portfolio-work__year">2023</span></span></summary><div class="portfolio-subcard__body"><div class="portfolio-card__intro"><p class="portfolio-card__meta">2023｜媒介占位</p><p>这里放早期作品的介绍。</p></div><div class="portfolio-card__images portfolio-images--mixed"><img src="assets/work-a.svg" width="1200" height="740" alt="早期作品，占位图片" loading="lazy" decoding="async" /></div></div></details>
+              <div class="portfolio-substage" role="region" aria-live="polite"></div>
+            </div></div></template>
+          </details>
+
+          <section class="practice-zone practice-zone--activities" id="art-activities" aria-label="艺术活动区"><div class="activity-list">
+            <details class="activity-group"><summary class="activity-group__summary"><h3>群展</h3></summary><div class="activity-group__body cv-rows"><div class="cv-row"><time>2026</time><div class="cv-row__content"><strong>展览名称</strong><span>国家 城市 场所</span></div></div></div></details>
+            <details class="activity-group"><summary class="activity-group__summary"><h3>个展</h3></summary><div class="activity-group__body cv-rows"><div class="cv-row"><time>2025</time><div class="cv-row__content"><strong>展览名称</strong><span>国家 城市 场所</span></div></div></div></details>
+            <details class="activity-group"><summary class="activity-group__summary"><h3>策展与项目</h3></summary><div class="activity-group__body cv-rows"><div class="cv-row cv-row--project"><time>2024</time><div class="cv-row__content"><strong>项目名称</strong><span>国家 城市 场所</span><span>担任角色</span></div></div></div></details>
+            <details class="activity-group"><summary class="activity-group__summary"><h3>艺术驻留</h3></summary><div class="activity-group__body cv-rows"><div class="cv-row"><time>2023</time><div class="cv-row__content"><strong>驻留项目</strong><span>国家 城市</span></div></div></div></details>
+          </div></section>
+        </div></div>
+      </section>
+
+      <section class="cv-group" id="skills" aria-labelledby="skills-title"><header class="cv-group__heading"><h2 id="skills-title">技能</h2></header><div class="cv-group__body"><p class="skills-description">这里列出与你的实践相关的技能，不必罗列与页面目标无关的工具。</p></div></section>
+      <details class="cv-group" id="ongoing-projects" aria-labelledby="ongoing-projects-title"><summary class="cv-group__summary"><h2 id="ongoing-projects-title">正在进行的项目</h2></summary><div class="cv-group__body"><section aria-labelledby="ongoing-project-name"><h3 class="ongoing-project__name" id="ongoing-project-name">项目名称</h3><div class="paper-card__abstract ongoing-project__body"><p>这里说明项目目前的阶段、合作方式与下一步计划。</p></div></section></div></details>
+      <details class="cv-group" id="environmental-work" aria-labelledby="environmental-work-title"><summary class="cv-group__summary"><h2 id="environmental-work-title">环保工作</h2></summary><div class="cv-group__body cv-rows"><div class="cv-row"><time>2024</time><div class="cv-row__content"><strong>参与事项</strong><span>这里写工作内容与具体成果。</span></div></div></div></details>
+    </div></main>
+  </article>
+
+  <dialog class="image-viewer" id="image-viewer" aria-label="作品图片放大查看"><button class="image-viewer__close" type="button" aria-label="关闭放大图片">关闭</button><div class="image-viewer__viewport"><img id="image-viewer-image" alt="" /></div></dialog>
+  <dialog class="paper-viewer" id="paper-viewer" aria-labelledby="paper-viewer-title"><div class="paper-viewer__window"><header class="paper-viewer__header"><h2 id="paper-viewer-title">正文</h2><div class="paper-viewer__actions"><a id="paper-viewer-external" href="#" target="_blank" rel="noreferrer">在新标签打开 ↗</a><button id="paper-viewer-close" type="button" aria-label="关闭全文窗口">关闭</button></div></header><iframe id="paper-viewer-frame" title="内容阅读窗口"></iframe></div></dialog>
+</body>
+</html>
