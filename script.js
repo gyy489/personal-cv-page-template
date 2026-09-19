@@ -1,16 +1,33 @@
 const schoolSections = Array.from(document.querySelectorAll(".school-card"));
 const schoolBodyOwners = new WeakMap();
 let schoolStage = null;
+const paperSections = Array.from(document.querySelectorAll(".paper-card"));
+const paperBodyOwners = new WeakMap();
+const paperList = document.querySelector(".paper-list");
+let paperNav = null;
+let paperStage = null;
 const portfolioSections = Array.from(document.querySelectorAll(".portfolio-card"));
 const activitySections = Array.from(document.querySelectorAll(".activity-group"));
 const secondarySections = Array.from(
   document.querySelectorAll(
-    ".school-card, .paper-card, .portfolio-card, .activity-group, details.cv-group",
+    ".school-card, .portfolio-card, .activity-group, details.cv-group",
   ),
 );
 const embeddedPages = Array.from(document.querySelectorAll(".baike-window iframe[data-src]"));
 const embeddedPageLoadingTimers = new WeakMap();
+const embeddedPagePreviewDelay = 3000;
+const backgroundSchoolBodies = new WeakMap();
+const backgroundMediaLoading = {
+  started: false,
+  scheduled: false,
+  images: [],
+  pages: [],
+  imageActive: false,
+  pageActive: false,
+};
 const downloadButton = document.querySelector("#download-cv");
+const profileName = document.querySelector("#page-title");
+const resumeActions = document.querySelector(".resume-actions");
 const paperButtons = Array.from(document.querySelectorAll(".paper-fulltext"));
 const paperViewer = document.querySelector("#paper-viewer");
 const paperViewerTitle = document.querySelector("#paper-viewer-title");
@@ -27,8 +44,40 @@ let pageMinHeightBeforePrint = null;
 let suppressSchoolNavigation = false;
 const schoolScrollPositions = new WeakMap();
 const expansionScrollPositions = new WeakMap();
+const expansionRetentionSerials = new WeakMap();
 const automaticallyClosedSchools = new WeakSet();
 let activeCollapse = null;
+
+function syncProfileNameWidth() {
+  if (!profileName || !resumeActions) return;
+
+  const actionItems = [...resumeActions.children];
+  const firstActionBox = actionItems.at(0)?.getBoundingClientRect();
+  const lastActionBox = actionItems.at(-1)?.getBoundingClientRect();
+  const targetWidth = firstActionBox && lastActionBox
+    ? (lastActionBox.right - firstActionBox.left) * 1.3
+    : 0;
+  if (!targetWidth) return;
+  profileName.style.letterSpacing = "0px";
+  const nameRange = document.createRange();
+  nameRange.selectNodeContents(profileName);
+  const naturalNameWidth = nameRange.getBoundingClientRect().width;
+  const characterCount = [...profileName.textContent.trim()].length;
+  if (!characterCount || !naturalNameWidth) return;
+
+  const spacing = Math.max(0, (targetWidth - naturalNameWidth) / characterCount);
+  profileName.style.letterSpacing = `${spacing}px`;
+}
+
+let profileNameSyncFrame = 0;
+function scheduleProfileNameWidthSync() {
+  window.cancelAnimationFrame(profileNameSyncFrame);
+  profileNameSyncFrame = window.requestAnimationFrame(syncProfileNameWidth);
+}
+
+scheduleProfileNameWidthSync();
+document.fonts?.ready.then(scheduleProfileNameWidthSync);
+window.addEventListener("resize", scheduleProfileNameWidthSync);
 
 function getPortfolioYear(section) {
   if (section.dataset.portfolioTail === "true") return Number.NEGATIVE_INFINITY;
@@ -62,9 +111,120 @@ let portfolioTransitionSerial = 0;
 let activityInteractionLocked = false;
 let activityTransitionSerial = 0;
 let pendingActivitySection = null;
+let activeActivityTarget = null;
 let activePortfolioSwitch = null;
 let pendingPortfolioSection = null;
+let activePortfolioTarget = null;
+let activeNavigationScroll = null;
+let viewportHeightRetentionSerial = 0;
+let retainedViewportTailActive = false;
+let retainedViewportTailFrame = 0;
 const stickyBarOwners = new Map();
+const sectionOpenedAt = new WeakMap();
+const accidentalCloseGuardDuration = 420;
+
+function markSectionOpened(section) {
+  sectionOpenedAt.set(section, performance.now());
+}
+
+function isAccidentalEarlyClose(section) {
+  const openedAt = sectionOpenedAt.get(section);
+  return section.open && openedAt !== undefined
+    && performance.now() - openedAt < accidentalCloseGuardDuration;
+}
+
+function cancelNavigationScroll() {
+  activeNavigationScroll?.cancel();
+}
+
+function scrollNavigationToTop(anchor, duration = 520, topOffset = 0) {
+  cancelNavigationScroll();
+  if (!anchor) return Promise.resolve();
+
+  const startY = window.scrollY;
+  const targetY = Math.max(0, anchor.getBoundingClientRect().top + startY - topOffset);
+  ensurePageHeightForScroll(targetY);
+  if (prefersReducedMotion.matches || Math.abs(targetY - startY) < 1) {
+    window.scrollTo({ top: targetY, behavior: "instant" });
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const scroll = { frame: 0, cancel: null };
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.cancelAnimationFrame(scroll.frame);
+      if (activeNavigationScroll === scroll) activeNavigationScroll = null;
+      resolve();
+    };
+    scroll.cancel = finish;
+    activeNavigationScroll = scroll;
+    const startedAt = performance.now();
+    const advance = (now) => {
+      const progress = Math.min(1, (now - startedAt) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      window.scrollTo({ top: startY + (targetY - startY) * eased, behavior: "instant" });
+      if (progress < 1) scroll.frame = window.requestAnimationFrame(advance);
+      else finish();
+    };
+    scroll.frame = window.requestAnimationFrame(advance);
+  });
+}
+
+function getResumeHeightMetrics() {
+  const pageTop = resumePage.getBoundingClientRect().top + window.scrollY;
+  const bottomMargin = Number.parseFloat(getComputedStyle(resumePage).marginBottom) || 0;
+  const contentElements = resumePage.querySelectorAll(":scope > header, :scope > main, :scope > footer");
+  const contentBottom = Math.max(
+    pageTop,
+    ...Array.from(contentElements, (element) => element.getBoundingClientRect().bottom + window.scrollY),
+  );
+  return {
+    pageTop,
+    bottomMargin,
+    naturalHeight: Math.max(0, Math.ceil(contentBottom - pageTop)),
+  };
+}
+
+function ensurePageHeightForScroll(targetY) {
+  if (!resumePage) return;
+  const { pageTop, bottomMargin } = getResumeHeightMetrics();
+  const requiredHeight = Math.max(
+    0,
+    Math.ceil(targetY + window.innerHeight - pageTop - bottomMargin),
+  );
+  const currentHeight = Number.parseFloat(resumePage.style.minHeight) || 0;
+  if (requiredHeight > currentHeight) {
+    resumePage.style.minHeight = `${requiredHeight}px`;
+  }
+}
+
+function settleRetainedViewportHeight(retentionSerial = viewportHeightRetentionSerial) {
+  if (!resumePage || retentionSerial !== viewportHeightRetentionSerial) return;
+  const { pageTop, bottomMargin, naturalHeight } = getResumeHeightMetrics();
+  const requiredHeight = Math.max(
+    0,
+    Math.ceil(window.scrollY + window.innerHeight - pageTop - bottomMargin),
+  );
+
+  if (requiredHeight > naturalHeight + 1) {
+    resumePage.style.minHeight = `${requiredHeight}px`;
+    retainedViewportTailActive = true;
+  } else {
+    resumePage.style.removeProperty("min-height");
+    retainedViewportTailActive = false;
+  }
+}
+
+function scheduleRetainedViewportTailUpdate() {
+  if (!retainedViewportTailActive || retainedViewportTailFrame) return;
+  retainedViewportTailFrame = window.requestAnimationFrame(() => {
+    retainedViewportTailFrame = 0;
+    settleRetainedViewportHeight();
+  });
+}
 
 function showStickyBar(element, owner, fadeIn = true) {
   if (!element) return;
@@ -83,6 +243,7 @@ function hideStickyBars(owner) {
 
 function cancelPortfolioSwitch() {
   pendingPortfolioSection = null;
+  cancelNavigationScroll();
   activePortfolioSwitch?.cancel();
 }
 
@@ -96,21 +257,23 @@ function animatePortfolioContent(body, keyframes, options) {
 async function togglePortfolioSection(section) {
   if (suppressSchoolNavigation) return;
   if (portfolioInteractionLocked) {
-    pendingPortfolioSection = section;
+    pendingPortfolioSection = section === activePortfolioTarget ? null : section;
     return;
   }
 
   const isSubcard = section.classList.contains("portfolio-subcard");
   const sublist = isSubcard ? section.closest(".portfolio-sublist") : null;
   const stage = isSubcard ? sublist?.querySelector(":scope > .portfolio-substage") : portfolioStage;
+  const interactionList = isSubcard ? sublist : portfolioList;
   if (!stage) return;
   const motionElements = isSubcard ? getPortfolioSubMotionElements(sublist) : getPortfolioMotionElements();
   if (section.open) {
+    if (isAccidentalEarlyClose(section)) return;
     startAnimatedCollapse(section, motionElements);
     return;
   }
 
-  prepareExpandableToggle(section);
+  const retentionSerial = prepareExpandableToggle(section);
   if (!isSubcard) loadPortfolioProject(section);
   const workPositions = captureWorkPresentation(section);
   const titleElements = isSubcard
@@ -140,7 +303,10 @@ async function togglePortfolioSection(section) {
     animations.forEach((animation) => animation.cancel());
     stage.style.height = originalHeight;
     stage.style.overflow = originalOverflow;
-    if (activePortfolioSwitch === transition) activePortfolioSwitch = null;
+    if (activePortfolioSwitch === transition) {
+      activePortfolioSwitch = null;
+      activePortfolioTarget = null;
+    }
   };
   transition.cancel = () => {
     transition.canceled = true;
@@ -150,12 +316,13 @@ async function togglePortfolioSection(section) {
     cleanup();
     if (serial === portfolioTransitionSerial) {
       portfolioInteractionLocked = false;
-      portfolioList?.removeAttribute("aria-busy");
+      interactionList?.removeAttribute("aria-busy");
     }
   };
   activePortfolioSwitch = transition;
+  activePortfolioTarget = section;
   portfolioInteractionLocked = true;
-  portfolioList?.setAttribute("aria-busy", "true");
+  interactionList?.setAttribute("aria-busy", "true");
   stage.style.height = `${oldHeight}px`;
   stage.style.overflow = "clip";
 
@@ -173,14 +340,21 @@ async function togglePortfolioSection(section) {
     if (isSubcard) section.classList.add("portfolio-subcard--active");
     else if (section.dataset.portfolioTail !== "true") section.classList.add("portfolio-card--active");
     section.open = true;
+    markSectionOpened(section);
     if (isSubcard) movePortfolioSubBodyToStage(section, stage);
     else movePortfolioBodyToStage(section);
     const body = getExpandableBody(section);
     if (!body) return;
+    prioritizePortfolioImages(body);
 
     // Layout stays in the same stage: no empty frame between old and new details.
     const newHeight = body.getBoundingClientRect().height;
     window.scrollTo({ top: scrollPosition, behavior: "instant" });
+    // “更多作品”有两层吸顶导航。为外层作品导航预留高度，避免
+    // 内层作品的时间与材料信息被标题栏覆盖；独立的项目列表不偏移。
+    const outerPortfolioList = isSubcard ? sublist.closest(".portfolio-list") : null;
+    const navigationTopOffset = outerPortfolioList ? portfolioNav?.offsetHeight || 0 : 0;
+    const navigationScroll = scrollNavigationToTop(interactionList, 520, navigationTopOffset);
     if (outgoingWork) animateWorkPresentation(outgoingOwner, outgoingWork, false);
     if (section.dataset.portfolioTail !== "true") animateWorkPresentation(section, workPositions);
     const titleMovement = animatePortfolioLayout(previousPositions, titleElements);
@@ -193,16 +367,18 @@ async function togglePortfolioSection(section) {
         duration: 320, delay: 60, easing: "ease-out", fill: "both",
       });
       animations.push(resize, ...enter);
-      await Promise.all([resize.finished.catch(() => undefined), ...enter.map((animation) => animation.finished.catch(() => undefined)), titleMovement]);
+      await Promise.all([resize.finished.catch(() => undefined), ...enter.map((animation) => animation.finished.catch(() => undefined)), titleMovement, navigationScroll]);
     } else {
       stage.style.height = `${newHeight}px`;
+      await navigationScroll;
     }
   } finally {
     cleanup();
     if (serial === portfolioTransitionSerial) {
       portfolioInteractionLocked = false;
-      portfolioList?.removeAttribute("aria-busy");
+      interactionList?.removeAttribute("aria-busy");
       schedulePortfolioStickyUpdate();
+      settleRetainedViewportHeight(retentionSerial);
       const pending = pendingPortfolioSection;
       pendingPortfolioSection = null;
       if (!transition.canceled && pending?.isConnected) {
@@ -239,6 +415,8 @@ function schedulePortfolioStickyUpdate() {
 }
 
 window.addEventListener("resize", schedulePortfolioStickyUpdate);
+window.addEventListener("scroll", scheduleRetainedViewportTailUpdate, { passive: true });
+window.addEventListener("resize", scheduleRetainedViewportTailUpdate);
 
 function getPortfolioFollowingElements() {
   const followingElements = [];
@@ -268,7 +446,7 @@ function capturePortfolioPositions(elements = getPortfolioMotionElements()) {
   return new Map(
     elements.map((element) => {
       const summary = element.matches(
-        ".portfolio-card, .portfolio-subcard, .activity-group",
+        ".paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
       )
         ? element.querySelector(":scope > summary")
         : null;
@@ -278,6 +456,10 @@ function capturePortfolioPositions(elements = getPortfolioMotionElements()) {
         {
           rect: element.getBoundingClientRect(),
           summaryRect: summary?.getBoundingClientRect() || null,
+          titleFontSize: element.matches(".paper-card, .activity-group") && summary
+            ? Number.parseFloat(getComputedStyle(summary.firstElementChild).fontSize)
+              * new DOMMatrix(getComputedStyle(summary).transform).a
+            : null,
         },
       ];
     }),
@@ -297,7 +479,7 @@ function animatePortfolioLayout(
     if (!previous) return;
 
     const summary = element.matches(
-      ".portfolio-card, .portfolio-subcard, .activity-group",
+      ".paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
     )
       ? element.querySelector(":scope > summary")
       : null;
@@ -309,14 +491,17 @@ function animatePortfolioLayout(
 
     const deltaX = previousRect.left - current.left;
     const deltaY = previousRect.top - current.top;
-    if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) return;
+    const scale = previous.titleFontSize && summary
+      ? previous.titleFontSize / Number.parseFloat(getComputedStyle(summary.firstElementChild).fontSize)
+      : 1;
+    if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1 && Math.abs(scale - 1) < 0.01) return;
 
     portfolioMovementAnimations.get(animatedElement)?.cancel();
 
     const movement = animatedElement.animate(
       [
-        { transform: `translate(${deltaX}px, ${deltaY}px)` },
-        { transform: "translate(0, 0)" },
+        { transform: `translate(${deltaX}px, ${deltaY}px) scale(${scale})`, transformOrigin: "top left" },
+        { transform: "translate(0, 0) scale(1)", transformOrigin: "top left" },
       ],
       {
         duration: portfolioTransitionDuration,
@@ -340,8 +525,9 @@ function animatePortfolioLayout(
   return Promise.all(animations);
 }
 
-function runActivityTransition(previousPositions, elements) {
+function runActivityTransition(previousPositions, elements, targetSection) {
   const transitionSerial = ++activityTransitionSerial;
+  activeActivityTarget = targetSection;
   activityInteractionLocked = true;
   activityList?.setAttribute("aria-busy", "true");
 
@@ -349,6 +535,7 @@ function runActivityTransition(previousPositions, elements) {
     if (transitionSerial !== activityTransitionSerial) return;
 
     activityInteractionLocked = false;
+    activeActivityTarget = null;
     activityList?.removeAttribute("aria-busy");
 
     const pendingSection = pendingActivitySection;
@@ -367,6 +554,100 @@ function revealPortfolioElement(element) {
     easing: "ease-out",
     fill: "both",
   });
+}
+
+function getPaperBody(section) {
+  const localBody = section.querySelector(":scope > .paper-card__abstract");
+  if (localBody) return localBody;
+  const stagedBody = paperStage?.querySelector(":scope > .paper-card__abstract");
+  return stagedBody && paperBodyOwners.get(stagedBody) === section ? stagedBody : null;
+}
+
+function restoreStagedPaperBody(section = null) {
+  const body = paperStage?.querySelector(":scope > .paper-card__abstract");
+  const owner = body && paperBodyOwners.get(body);
+  if (!owner || (section && owner !== section)) return;
+  owner.append(body);
+  paperStage.removeAttribute("aria-label");
+}
+
+function movePaperBodyToStage(section) {
+  const body = getPaperBody(section);
+  if (!body || !paperStage) return;
+  restoreStagedPaperBody();
+  paperStage.replaceChildren(body);
+  paperStage.setAttribute(
+    "aria-label",
+    section.querySelector(":scope > summary")?.textContent.trim() || "论文摘要",
+  );
+}
+
+function updatePaperNavigation() {
+  paperList?.classList.toggle(
+    "paper-list--expanded",
+    paperSections.some((section) => section.open),
+  );
+}
+
+function togglePaperSection(section) {
+  if (suppressSchoolNavigation) return;
+  if (section.open) {
+    if (isAccidentalEarlyClose(section)) return;
+    startAnimatedCollapse(section, [...paperSections, ...getPortfolioMotionElements()]);
+    return;
+  }
+
+  const retentionSerial = prepareExpandableToggle(section);
+  const previousPositions = capturePortfolioPositions(paperSections);
+  const switching = paperSections.some((other) => other.open);
+  // Transfer the bar before closing the old paper so switches stay opaque.
+  showStickyBar(paperNav, section, !switching);
+  closeOtherExpandableSections(section);
+  section.open = true;
+  markSectionOpened(section);
+  section.classList.add("paper-card--active");
+  movePaperBodyToStage(section);
+  updatePaperNavigation();
+  const titleMovement = animatePortfolioLayout(previousPositions, paperSections);
+  const navigationScroll = scrollNavigationToTop(paperList);
+  revealPortfolioElement(getPaperBody(section));
+  Promise.all([titleMovement, navigationScroll]).finally(() => {
+    settleRetainedViewportHeight(retentionSerial);
+  });
+}
+
+if (paperList) {
+  paperNav = document.createElement("div");
+  paperNav.className = "paper-nav";
+  paperNav.setAttribute("aria-label", "论文导航");
+  paperList.prepend(paperNav);
+
+  paperSections.forEach((section) => {
+    const body = section.querySelector(":scope > .paper-card__abstract");
+    if (body) paperBodyOwners.set(body, section);
+    paperNav.append(section);
+
+    section.querySelector(":scope > summary")?.addEventListener("click", (event) => {
+      if (suppressSchoolNavigation) return;
+      event.preventDefault();
+      togglePaperSection(section);
+    });
+
+    section.addEventListener("toggle", () => {
+      if (suppressSchoolNavigation) return;
+      if (!section.open) {
+        restoreStagedPaperBody(section);
+        section.classList.remove("paper-card--active");
+        updatePaperNavigation();
+      }
+    });
+  });
+
+  paperStage = document.createElement("div");
+  paperStage.className = "paper-stage";
+  paperStage.setAttribute("role", "region");
+  paperStage.setAttribute("aria-live", "polite");
+  paperList.append(paperStage);
 }
 
 if (portfolioList) {
@@ -410,17 +691,38 @@ if (activityList) {
 
 function fitEmbeddedPage(frame) {
   const viewport = frame.closest(".baike-window__viewport");
-  if (!viewport || viewport.clientWidth === 0 || viewport.clientHeight === 0) return;
+  if (!viewport) return;
 
-  const visibleWidth = viewport.clientWidth;
-  const visibleHeight = viewport.clientHeight;
   const browserWidth = document.documentElement.clientWidth;
+  // Pre-set dimensions even before a closed card has a background layout box.
+  const visibleWidth = viewport.clientWidth
+    || Math.max(1, (frame.closest("#education")?.clientWidth || browserWidth) - 2);
+  const visibleHeight = viewport.clientHeight
+    || Number.parseFloat(getComputedStyle(viewport).height)
+    || 360;
   const sourceWidth = Math.max(visibleWidth, browserWidth);
   const scale = Math.min(1, visibleWidth / sourceWidth);
 
   frame.style.width = `${sourceWidth}px`;
   frame.style.height = `${Math.ceil(visibleHeight / scale)}px`;
   frame.style.transform = `scale(${scale})`;
+}
+
+function clearEmbeddedPageLoadingTimers(frame) {
+  const timers = embeddedPageLoadingTimers.get(frame);
+  if (!timers) return;
+  window.clearTimeout(timers.preview);
+  window.clearTimeout(timers.slow);
+  embeddedPageLoadingTimers.delete(frame);
+}
+
+function releaseEmbeddedPagePreview(frame) {
+  const viewport = frame.closest(".baike-window__viewport");
+  if (!viewport) return;
+  viewport.classList.add("is-preview-released");
+  if (viewport.classList.contains("is-loading") && !viewport.classList.contains("is-loading-slow")) {
+    viewport.querySelector(".baike-loading__text").textContent = "页面继续加载中…";
+  }
 }
 
 function loadEmbeddedPage(frame) {
@@ -444,12 +746,21 @@ function loadEmbeddedPage(frame) {
       viewport.append(loader);
     }
     viewport.classList.add("is-loading");
+    viewport.classList.remove("is-loaded", "is-preview-released", "is-loading-slow", "is-loading-error");
     viewport.setAttribute("aria-busy", "true");
     viewport.querySelector(".baike-loading").removeAttribute("aria-hidden");
-    embeddedPageLoadingTimers.set(frame, window.setTimeout(() => {
-      viewport.classList.add("is-loading-slow");
-      viewport.querySelector(".baike-loading__text").textContent = "加载较慢，可点击上方“打开原页”查看";
-    }, 15000));
+    viewport.querySelector(".baike-loading__text").textContent = "正在加载百度百科…";
+    clearEmbeddedPageLoadingTimers(frame);
+    // A cross-origin iframe cannot report DOM readiness to this page without
+    // cooperation from Baidu. Hand off the preview early, but keep loading
+    // separate: only the iframe's load event marks the page as finished.
+    embeddedPageLoadingTimers.set(frame, {
+      preview: window.setTimeout(() => releaseEmbeddedPagePreview(frame), embeddedPagePreviewDelay),
+      slow: window.setTimeout(() => {
+        viewport.classList.add("is-loading-slow");
+        viewport.querySelector(".baike-loading__text").textContent = "加载较慢，可点击上方“打开原页”查看";
+      }, 15000),
+    });
   }
 
   frame.src = frame.dataset.src;
@@ -461,19 +772,20 @@ embeddedPages.forEach((frame) => {
     fitEmbeddedPage(frame);
     // Ignore the iframe's initial empty document before lazy loading starts.
     if (frame.dataset.src) return;
-    window.clearTimeout(embeddedPageLoadingTimers.get(frame));
-    embeddedPageLoadingTimers.delete(frame);
+    clearEmbeddedPageLoadingTimers(frame);
     const viewport = frame.closest(".baike-window__viewport");
-    viewport?.classList.remove("is-loading", "is-loading-slow");
+    viewport?.classList.remove("is-loading", "is-loading-slow", "is-loading-error");
+    viewport?.classList.add("is-loaded", "is-preview-released");
     viewport?.setAttribute("aria-busy", "false");
     viewport?.querySelector(".baike-loading")?.setAttribute("aria-hidden", "true");
   });
   frame.addEventListener("error", () => {
-    window.clearTimeout(embeddedPageLoadingTimers.get(frame));
-    embeddedPageLoadingTimers.delete(frame);
+    clearEmbeddedPageLoadingTimers(frame);
     const viewport = frame.closest(".baike-window__viewport");
-    viewport?.classList.add("is-loading-slow");
+    viewport?.classList.remove("is-loading", "is-loading-slow", "is-loaded");
+    viewport?.classList.add("is-loading-error", "is-preview-released");
     viewport?.setAttribute("aria-busy", "false");
+    viewport?.querySelector(".baike-loading")?.removeAttribute("aria-hidden");
     const text = viewport?.querySelector(".baike-loading__text");
     if (text) text.textContent = "暂时无法加载，可点击上方“打开原页”查看";
   });
@@ -496,6 +808,195 @@ window.addEventListener("resize", () => {
   embeddedPages.forEach(fitEmbeddedPage);
 });
 
+function collectBackgroundImages() {
+  const groups = [];
+  portfolioSections.slice().sort((a, b) => getPortfolioYear(b) - getPortfolioYear(a))
+    .forEach((section) => {
+      const scope = section.querySelector(":scope > .portfolio-card__template")?.content
+        || getPortfolioBody(section);
+      if (!scope) return;
+      if (section.dataset.portfolioTail === "true") {
+        const substage = scope.querySelector(".portfolio-substage");
+        scope.querySelectorAll(".portfolio-subcard").forEach((subcard) => {
+          const body = getPortfolioSubBody(subcard, substage);
+          if (body) groups.push([...body.querySelectorAll("img[src]")]);
+        });
+      } else {
+        groups.push([...scope.querySelectorAll("img[src]")]);
+      }
+    });
+  groups.push([...document.querySelectorAll("#ongoing-projects img[src]")]);
+
+  const sources = new Map();
+  const animations = [];
+  const add = (image) => {
+    const src = new URL(image.getAttribute("src"), document.baseURI).href;
+    if (sources.has(src)) return;
+    sources.set(src, {
+      src,
+      fallbackSrc: image.dataset.fallbackSrc
+        ? new URL(image.dataset.fallbackSrc, document.baseURI).href : null,
+    });
+  };
+  // Round-robin covers first; larger animated images with poster fallbacks last.
+  const longest = Math.max(0, ...groups.map((images) => images.length));
+  for (let index = 0; index < longest; index += 1) {
+    groups.forEach((images) => {
+      const image = images[index];
+      if (!image) return;
+      if (image.dataset.fallbackSrc) animations.push(image);
+      else add(image);
+    });
+  }
+  animations.forEach(add);
+  return [...sources.values()];
+}
+
+function preloadBackgroundImage(source) {
+  if ([...document.images].some((image) => image.complete && image.naturalWidth > 0
+    && (image.currentSrc || image.src) === source.src)) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    let fallbackSrc = source.fallbackSrc;
+    image.decoding = "async";
+    image.fetchPriority = "low";
+    const finish = () => {
+      image.onload = null;
+      image.onerror = null;
+      resolve();
+    };
+    image.onload = finish;
+    image.onerror = () => {
+      if (!fallbackSrc) {
+        finish();
+        return;
+      }
+      const fallback = fallbackSrc;
+      fallbackSrc = null;
+      image.src = fallback;
+    };
+    // Use the browser's normal image cache. Do not clone work details, create
+    // object URLs, or retain every decoded image in JavaScript memory.
+    image.src = source.src;
+  });
+}
+
+function clearBackgroundSchoolBody(body) {
+  const previous = body && backgroundSchoolBodies.get(body);
+  if (!previous) return;
+  body.classList.remove("school-card__body--background-loading");
+  body.style.removeProperty("--school-background-width");
+  body.inert = previous.inert;
+  backgroundSchoolBodies.delete(body);
+}
+
+function preloadBackgroundPage(frame) {
+  // A user may already have opened this school before its queue turn.
+  if (!frame.dataset.src) return Promise.resolve();
+  const body = frame.closest(".school-card__body");
+  const owner = body && schoolBodyOwners.get(body);
+  if (body && owner && !owner.open) {
+    // Render offscreen, rather than display:none: Baidu's responsive scripts
+    // need a real viewport. Keep the original iframe and exclude the hidden
+    // body from focus/accessibility until it is opened or finishes loading.
+    backgroundSchoolBodies.set(body, { inert: body.inert });
+    body.inert = true;
+    body.style.setProperty("--school-background-width", `${body.closest("#education").clientWidth}px`);
+    body.classList.add("school-card__body--background-loading");
+  }
+  return new Promise((resolve) => {
+    const finish = () => {
+      frame.removeEventListener("load", finish);
+      frame.removeEventListener("error", finish);
+      clearBackgroundSchoolBody(body);
+      resolve();
+    };
+    frame.addEventListener("load", finish);
+    frame.addEventListener("error", finish);
+    loadEmbeddedPage(frame);
+  });
+}
+
+function hasForegroundMediaLoading() {
+  if (schoolSections.some((section) => section.open
+    && getSchoolBody(section)?.querySelector(".baike-window__viewport.is-loading"))) return true;
+
+  return [...document.querySelectorAll(".portfolio-stage img, #ongoing-projects .portfolio-subcard[open] img")]
+    .some((image) => {
+      if (image.complete || image.getClientRects().length === 0) return false;
+      if (image.loading !== "lazy") return true;
+      const rect = image.getBoundingClientRect();
+      return rect.bottom >= 0 && rect.top <= window.innerHeight + 300;
+    });
+}
+
+function scheduleBackgroundMediaLoading(delay = 150) {
+  const state = backgroundMediaLoading;
+  if (!state.started || state.scheduled || (!state.images.length && !state.pages.length)) return;
+  state.scheduled = true;
+  window.setTimeout(() => {
+    const run = () => {
+      state.scheduled = false;
+      drainBackgroundMediaLoading();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(run, { timeout: 1000 });
+    } else {
+      run();
+    }
+  }, delay);
+}
+
+function drainBackgroundMediaLoading() {
+  const state = backgroundMediaLoading;
+  // Let foreground interactions finish; hidden/offline pages resume on events.
+  if (document.hidden || !navigator.onLine) return;
+  if (suppressSchoolNavigation || activeCollapse || portfolioInteractionLocked
+    || activityInteractionLocked || hasForegroundMediaLoading()) {
+    scheduleBackgroundMediaLoading(500);
+    return;
+  }
+  if (!state.imageActive && state.images.length) {
+    state.imageActive = true;
+    preloadBackgroundImage(state.images.shift()).catch(() => undefined).finally(() => {
+      state.imageActive = false;
+      scheduleBackgroundMediaLoading();
+    });
+  }
+  if (!state.pageActive && state.pages.length) {
+    state.pageActive = true;
+    preloadBackgroundPage(state.pages.shift()).catch(() => undefined).finally(() => {
+      state.pageActive = false;
+      scheduleBackgroundMediaLoading();
+    });
+  }
+}
+
+function startBackgroundMediaLoading() {
+  const state = backgroundMediaLoading;
+  if (state.started || navigator.connection?.saveData) return;
+  state.started = true;
+  state.images = collectBackgroundImages();
+  state.pages = embeddedPages.slice();
+  // The initial text/portrait load first. Background work begins on an idle
+  // turn after a short head start for reading, not during HTML parsing.
+  scheduleBackgroundMediaLoading(1000);
+}
+
+if (document.readyState === "complete") startBackgroundMediaLoading();
+else window.addEventListener("load", startBackgroundMediaLoading, { once: true });
+document.addEventListener("visibilitychange", () => scheduleBackgroundMediaLoading());
+window.addEventListener("online", () => scheduleBackgroundMediaLoading());
+
+function prioritizePortfolioImages(scope) {
+  scope.querySelectorAll("img").forEach((image) => {
+    if (image.closest(".portfolio-subcard:not([open])")) return;
+    image.loading = "eager";
+    image.fetchPriority = "high";
+  });
+}
+
 function loadPortfolioProject(section) {
   if (section.dataset.loaded === "true") return;
 
@@ -503,9 +1004,7 @@ function loadPortfolioProject(section) {
   if (!template) return;
 
   const projectContent = template.content.cloneNode(true);
-  projectContent.querySelectorAll("img").forEach((image) => {
-    image.loading = "eager";
-  });
+  prioritizePortfolioImages(projectContent);
 
   const body = projectContent.querySelector(".portfolio-card__body");
   if (body) portfolioBodyOwners.set(body, section);
@@ -773,9 +1272,18 @@ function getActivityMotionElements() {
 }
 
 function getPortfolioSubMotionElements(sublist) {
+  const followingElements = [];
+  let followingSection = sublist.closest(".cv-group")?.nextElementSibling;
+  while (followingSection) {
+    followingElements.push(followingSection);
+    followingSection = followingSection.nextElementSibling;
+  }
+  const footer = document.querySelector(".resume-footer");
+  if (footer) followingElements.push(footer);
+
   return [
     ...sublist.querySelectorAll(":scope > .portfolio-subnav > .portfolio-subcard"),
-    ...getPortfolioFollowingElements(),
+    ...followingElements,
   ];
 }
 
@@ -791,7 +1299,7 @@ function setupPortfolioSublists(scope) {
 
     const subnav = document.createElement("div");
     subnav.className = "portfolio-subnav";
-    subnav.setAttribute("aria-label", "更多作品导航");
+    subnav.setAttribute("aria-label", sublist.getAttribute("aria-label") || "更多作品导航");
     sublist.insertBefore(subnav, substage);
     subcards.forEach((subcard) => subnav.append(subcard));
     portfolioNavigationObserver.observe(subnav);
@@ -822,8 +1330,17 @@ function setupPortfolioSublists(scope) {
         subcard.classList.remove("portfolio-subcard--active");
       });
     });
+
+    const initiallyOpenSubcard = subcards.find((subcard) => subcard.open);
+    if (initiallyOpenSubcard) {
+      initiallyOpenSubcard.classList.add("portfolio-subcard--active");
+      movePortfolioSubBodyToStage(initiallyOpenSubcard, substage);
+    }
+    updatePortfolioNavigation();
   });
 }
+
+setupPortfolioSublists(document.querySelector("#ongoing-projects"));
 
 portfolioSections.forEach((section) => {
   if (section.open) loadPortfolioProject(section);
@@ -854,18 +1371,19 @@ function toggleActivitySection(section) {
   }
 
   if (activityInteractionLocked) {
-    pendingActivitySection = section;
+    pendingActivitySection = section === activeActivityTarget ? null : section;
     return;
   }
 
   const motionElements = getActivityMotionElements();
 
   if (section.open) {
+    if (isAccidentalEarlyClose(section)) return;
     startAnimatedCollapse(section, motionElements);
     return;
   }
 
-  prepareExpandableToggle(section);
+  const retentionSerial = prepareExpandableToggle(section);
   const previousPositions = capturePortfolioPositions(motionElements);
   const switching = activitySections.some((other) => other !== section && other.open);
   activitySections.forEach((otherSection) => {
@@ -878,10 +1396,15 @@ function toggleActivitySection(section) {
   closeOtherExpandableSections(section);
   section.classList.add("activity-group--active");
   section.open = true;
+  markSectionOpened(section);
   showStickyBar(activityNav, section, !switching);
   moveActivityBodyToStage(section);
   updatePortfolioNavigation();
-  runActivityTransition(previousPositions, motionElements);
+  const layoutTransition = runActivityTransition(previousPositions, motionElements, section);
+  const navigationScroll = scrollNavigationToTop(activityList);
+  Promise.all([layoutTransition, navigationScroll]).finally(() => {
+    settleRetainedViewportHeight(retentionSerial);
+  });
   revealPortfolioElement(getActivityBody(section));
 }
 
@@ -941,6 +1464,7 @@ function restoreStagedSchoolBody(section = null) {
 function moveSchoolBodyToStage(section) {
   const body = getSchoolBody(section);
   if (!body || !schoolStage) return;
+  clearBackgroundSchoolBody(body);
   restoreStagedSchoolBody();
   if (schoolStage.moveBefore) schoolStage.moveBefore(body, null);
   else schoolStage.append(body);
@@ -985,8 +1509,11 @@ schoolSections.forEach((section) => {
     const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
     if (frame) loadEmbeddedPage(frame);
 
+    const retentionSerial = expansionRetentionSerials.get(section);
     window.requestAnimationFrame(() => {
-      educationSection?.scrollIntoView({ block: "start", behavior: "smooth" });
+      scrollNavigationToTop(educationSection).finally(() => {
+        settleRetainedViewportHeight(retentionSerial);
+      });
     });
   });
 });
@@ -1002,13 +1529,17 @@ function closeExpandableSection(section) {
   if (!section.open) return;
   hideStickyBars(section);
   cancelWorkPresentation(section);
-  section.classList.remove("portfolio-work--presented");
+  section.classList.remove("portfolio-work--presented", "paper-card--active");
   expansionScrollPositions.delete(section);
 
   if (section.classList.contains("school-card")) {
     restoreStagedSchoolBody(section);
     automaticallyClosedSchools.add(section);
     schoolScrollPositions.delete(section);
+  }
+
+  if (section.classList.contains("paper-card")) {
+    restoreStagedPaperBody(section);
   }
 
   if (section.classList.contains("portfolio-card")) {
@@ -1028,6 +1559,7 @@ function closeExpandableSection(section) {
   }
 
   section.open = false;
+  if (section.classList.contains("paper-card")) updatePaperNavigation();
   updatePortfolioNavigation();
 }
 
@@ -1059,8 +1591,10 @@ function closeOtherExpandableSections(currentSection) {
 function retainViewportHeight() {
   // Keep only the height required by the current viewport, not a historical
   // maximum that retains every long expansion (and can accumulate rounding).
-  const pageTop = resumePage.getBoundingClientRect().top + window.scrollY;
-  const bottomMargin = Number.parseFloat(getComputedStyle(resumePage).marginBottom) || 0;
+  window.cancelAnimationFrame(retainedViewportTailFrame);
+  retainedViewportTailFrame = 0;
+  retainedViewportTailActive = false;
+  const { pageTop, bottomMargin } = getResumeHeightMetrics();
   const requiredHeight = Math.max(
     0,
     Math.floor(window.scrollY + window.innerHeight - pageTop - bottomMargin),
@@ -1070,10 +1604,13 @@ function retainViewportHeight() {
   } else {
     resumePage.style.removeProperty("min-height");
   }
+  viewportHeightRetentionSerial += 1;
+  return viewportHeightRetentionSerial;
 }
 
 function getExpandableBody(section) {
   if (section.matches(".school-card")) return getSchoolBody(section);
+  if (section.matches(".paper-card")) return getPaperBody(section);
   if (section.matches(".portfolio-card")) return getPortfolioBody(section);
   if (section.matches(".activity-group")) return getActivityBody(section);
   if (section.matches(".portfolio-subcard")) {
@@ -1093,7 +1630,7 @@ function startAnimatedCollapse(section, motionElements = getPortfolioMotionEleme
   const body = getExpandableBody(section);
   if (!body) {
     closeExpandableSection(section);
-    resumePage.style.removeProperty("min-height");
+    settleRetainedViewportHeight();
     return;
   }
 
@@ -1139,11 +1676,11 @@ function startAnimatedCollapse(section, motionElements = getPortfolioMotionEleme
     }
     closeExpandableSection(section);
     if (activeCollapse === collapse) activeCollapse = null;
-    if (!keepHeight) resumePage.style.removeProperty("min-height");
+    if (!keepHeight) settleRetainedViewportHeight();
     schedulePortfolioStickyUpdate();
   };
 
-  section.classList.remove("portfolio-card--active", "portfolio-subcard--active", "activity-group--active");
+  section.classList.remove("paper-card--active", "portfolio-card--active", "portfolio-subcard--active", "activity-group--active");
   if (workPositions) {
     section.classList.remove("portfolio-work--presented");
     updatePortfolioNavigation();
@@ -1180,8 +1717,10 @@ function prepareExpandableToggle(section) {
 
   cancelPortfolioSwitch();
   activeCollapse?.finish(true);
-  retainViewportHeight();
+  const retentionSerial = retainViewportHeight();
   expansionScrollPositions.set(section, window.scrollY);
+  expansionRetentionSerials.set(section, retentionSerial);
+  return retentionSerial;
 }
 
 function preservePageHeightBeforeToggle(event) {
@@ -1189,7 +1728,7 @@ function preservePageHeightBeforeToggle(event) {
   const section = summary?.parentElement;
   if (
     !section?.matches(
-      ".school-card, .paper-card, details.cv-group",
+      ".school-card, details.cv-group",
     )
   ) {
     return;
@@ -1197,6 +1736,7 @@ function preservePageHeightBeforeToggle(event) {
 
   if (section.open) {
     event.preventDefault();
+    if (isAccidentalEarlyClose(section)) return;
     startAnimatedCollapse(section);
   } else {
     prepareExpandableToggle(section);
@@ -1208,7 +1748,17 @@ document.addEventListener("click", preservePageHeightBeforeToggle, true);
 secondarySections.forEach((section) => {
   section.addEventListener("toggle", () => {
     if (!section.open || suppressSchoolNavigation) return;
+    markSectionOpened(section);
     closeOtherExpandableSections(section);
+
+    if (section.matches("details.cv-group")) {
+      const retentionSerial = expansionRetentionSerials.get(section);
+      window.requestAnimationFrame(() => {
+        scrollNavigationToTop(section).finally(() => {
+          settleRetainedViewportHeight(retentionSerial);
+        });
+      });
+    }
   });
 });
 
@@ -1219,31 +1769,39 @@ function closePaperViewer() {
 }
 
 function setupImageZoom(scope) {
-  scope.querySelectorAll(".portfolio-card__images img").forEach((image) => {
-    if (image.closest(".portfolio-image-trigger")) return;
+  scope.querySelectorAll(".portfolio-card__images img").forEach((media) => {
+    if (media.closest(".portfolio-image-trigger")) return;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "portfolio-image-trigger";
-    button.setAttribute("aria-label", `放大查看：${image.alt}`);
+    button.setAttribute("aria-label", `放大查看：${media.alt || media.getAttribute("aria-label")}`);
     button.setAttribute("aria-haspopup", "dialog");
     button.setAttribute("aria-controls", "image-viewer");
-    const ratio = image.style.getPropertyValue("--image-ratio");
+    const ratio = media.style.getPropertyValue("--image-ratio");
     if (ratio) button.style.setProperty("--image-ratio", ratio);
-    image.before(button);
-    button.append(image);
+    media.before(button);
+    button.append(media);
   });
 }
 
 setupImageZoom(document.querySelector("#ongoing-projects"));
 
+document.addEventListener("error", (event) => {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement) || !image.dataset.fallbackSrc) return;
+  image.src = image.dataset.fallbackSrc;
+  delete image.dataset.fallbackSrc;
+}, true);
+
 document.addEventListener("click", (event) => {
   const trigger = event.target.closest?.(".portfolio-image-trigger");
   if (!trigger || !imageViewer || !imageViewerImage || suppressSchoolNavigation) return;
-  const image = trigger.querySelector("img");
-  imageViewerImage.src = image.currentSrc || image.src;
-  imageViewerImage.alt = image.alt;
-  imageViewerImage.width = image.naturalWidth || image.width;
-  imageViewerImage.height = image.naturalHeight || image.height;
+  const media = trigger.querySelector("img");
+  if (!media) return;
+  imageViewerImage.src = media.currentSrc || media.src;
+  imageViewerImage.alt = media.alt;
+  imageViewerImage.width = media.naturalWidth || media.width;
+  imageViewerImage.height = media.naturalHeight || media.height;
   imageViewerScrollState = {
     y: window.scrollY,
     overflow: document.documentElement.style.overflow,
@@ -1313,6 +1871,7 @@ function expandForPrint() {
   restoreStagedPortfolioBody();
   restoreStagedActivityBody();
   restoreStagedSchoolBody();
+  restoreStagedPaperBody();
   embeddedPages.forEach(loadEmbeddedPage);
   portfolioSections.forEach(loadPortfolioProject);
   restoreAllPortfolioSubstages();
@@ -1326,6 +1885,7 @@ function expandForPrint() {
   printableSections.forEach((item) => {
     item.open = true;
   });
+  prioritizePortfolioImages(document);
 }
 
 function restoreAfterPrint() {
@@ -1337,6 +1897,13 @@ function restoreAfterPrint() {
 
   const openSchool = schoolSections.find((section) => section.open);
   if (openSchool) moveSchoolBodyToStage(openSchool);
+
+  const openPaper = paperSections.find((section) => section.open);
+  paperSections.forEach((section) => {
+    section.classList.toggle("paper-card--active", section === openPaper);
+  });
+  if (openPaper) movePaperBodyToStage(openPaper);
+  updatePaperNavigation();
 
   const openPortfolio = portfolioSections.find((section) => section.open);
   if (openPortfolio) movePortfolioBodyToStage(openPortfolio);

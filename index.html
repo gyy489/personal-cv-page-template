@@ -12,11 +12,14 @@
   <a class="skip-link" href="#main-content">跳至正文</a>
   <article class="resume-page">
     <header class="resume-header" aria-labelledby="page-title">
+      <div class="resume-header__topline">
+        <address class="contact-line"><a href="mailto:hello@example.com">hello@example.com</a></address>
+        <span class="resume-header__handle">your-handle</span>
+      </div>
       <hr class="resume-header__rule" aria-hidden="true" />
-      <section class="resume-header__profile" aria-label="个人简介">
+      <section class="resume-header__profile" aria-label="个人信息">
         <div class="resume-header__profile-copy">
           <h1 id="page-title">你的名字</h1>
-          <p class="resume-header__intro">这里写你的兴趣、研究方向与实践方法。保留一段清晰的个人介绍，让读者先理解你关心的问题，再进入下面的经历与作品。</p>
           <nav class="resume-actions" aria-label="简历链接">
             <a href="https://github.com/" target="_blank" rel="noreferrer">GitHub ↗</a>
             <button id="download-cv" type="button">下载 CV ↗</button>
@@ -24,12 +27,15 @@
         </div>
         <div class="resume-header__identity">
           <figure class="portrait"><img src="assets/portrait.svg" alt="肖像占位图" /></figure>
-          <address class="contact-line"><a href="mailto:hello@example.com">hello@example.com</a></address>
         </div>
       </section>
     </header>
 
     <main id="main-content"><div class="cv-outline">
+      <section class="cv-group cv-introduction" id="introduction" aria-labelledby="introduction-title">
+        <header class="cv-group__heading"><h2 id="introduction-title">个人介绍</h2></header>
+        <div class="cv-group__body"><p class="cv-introduction__text">这里写你的兴趣、研究方向与实践方法。保留一段清晰的个人介绍，让读者先理解你关心的问题，再进入下面的经历与作品。</p></div>
+      </section>
       <section class="cv-group" id="education" aria-labelledby="education-title">
         <div class="education-overview">
           <header class="cv-group__heading"><h2 id="education-title">教育经历</h2></header>
@@ -88,8 +94,15 @@
         </div></div>
       </section>
 
+      <section class="cv-group" id="ongoing-projects" aria-labelledby="ongoing-projects-title">
+        <header class="cv-group__heading"><h2 id="ongoing-projects-title">正在进行的项目</h2></header>
+        <div class="cv-group__body"><div class="portfolio-sublist ongoing-project-list" aria-label="正在进行的项目导航">
+          <details class="portfolio-subcard ongoing-project-card"><summary><span><span class="portfolio-work__name">项目 A</span> <span class="portfolio-work__year">2026</span></span></summary><div class="portfolio-subcard__body paper-card__abstract ongoing-project__body"><div class="portfolio-card__intro"><p class="portfolio-card__meta">2026｜项目媒介｜进行中</p><p>这里说明项目背景、当前阶段、合作方式与下一步计划。</p></div><div class="portfolio-card__images portfolio-images--mixed ongoing-project__images"><img src="assets/work-a.svg" width="1200" height="740" alt="项目 A，占位图片" loading="lazy" decoding="async" /></div></div></details>
+          <details class="portfolio-subcard ongoing-project-card"><summary><span><span class="portfolio-work__name">项目 B</span> <span class="portfolio-work__year">2026</span></span></summary><div class="portfolio-subcard__body paper-card__abstract ongoing-project__body"><div class="portfolio-card__intro"><p class="portfolio-card__meta">2026｜项目进行中</p><p>第二个项目的占位介绍放在这里。</p></div></div></details>
+          <div class="portfolio-substage" role="region" aria-live="polite"></div>
+        </div></div>
+      </section>
       <section class="cv-group" id="skills" aria-labelledby="skills-title"><header class="cv-group__heading"><h2 id="skills-title">技能</h2></header><div class="cv-group__body"><p class="skills-description">这里列出与你的实践相关的技能，不必罗列与页面目标无关的工具。</p></div></section>
-      <details class="cv-group" id="ongoing-projects" aria-labelledby="ongoing-projects-title"><summary class="cv-group__summary"><h2 id="ongoing-projects-title">正在进行的项目</h2></summary><div class="cv-group__body"><section aria-labelledby="ongoing-project-name"><h3 class="ongoing-project__name" id="ongoing-project-name">项目名称</h3><div class="paper-card__abstract ongoing-project__body"><p>这里说明项目目前的阶段、合作方式与下一步计划。</p></div></section></div></details>
       <details class="cv-group" id="environmental-work" aria-labelledby="environmental-work-title"><summary class="cv-group__summary"><h2 id="environmental-work-title">环保工作</h2></summary><div class="cv-group__body cv-rows"><div class="cv-row"><time>2024</time><div class="cv-row__content"><strong>参与事项</strong><span>这里写工作内容与具体成果。</span></div></div></div></details>
     </div></main>
   </article>
