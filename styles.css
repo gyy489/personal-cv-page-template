@@ -1,6 +1,6 @@
 :root {
-  --paper: #ffffff;
-  --ink: #171717;
+  --paper: #f8f8f5;
+  --ink: #1F1F1F;
   --muted: #66645f;
   --wash: #f5f5f2;
   --section-rule: #c7c7c2;
@@ -39,6 +39,15 @@ a {
   color: inherit;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.18em;
+}
+
+.text-arrow {
+  display: inline-block;
+  font-family: Arial, Helvetica, sans-serif;
+  font-variant-emoji: text;
+  line-height: 1;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
 }
 
 button,
@@ -91,7 +100,7 @@ summary {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 2mm;
+  padding-bottom: 0.2mm;
 }
 
 .resume-header__handle {
@@ -167,8 +176,7 @@ h1 {
 }
 
 .contact-line a {
-  text-decoration: underline;
-  text-decoration-color: #a6a49e;
+  text-decoration: none;
 }
 
 .resume-actions {
@@ -191,9 +199,24 @@ h1 {
   font-size: clamp(9px, 1.15vw, 10px);
   font-weight: 600;
   line-height: var(--content-line-height);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.25em;
+  text-decoration: none;
+}
+
+@media screen and (hover: hover) {
+  .resume-actions a:hover,
+  .resume-actions button:hover,
+  .paper-fulltext:hover {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.25em;
+  }
+
+  a:hover .text-arrow,
+  button:hover .text-arrow,
+  a:focus-visible .text-arrow,
+  button:focus-visible .text-arrow {
+    text-decoration-line: underline;
+  }
 }
 
 .portrait {
@@ -270,26 +293,28 @@ h1 {
 
 :is(.school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group) > summary > :is(span, h3),
 .cv-group__summary > h2 {
-  text-decoration-line: underline;
-  text-decoration-color: transparent;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.25em;
-  transition: text-decoration-color 180ms ease;
+  text-decoration: none;
 }
 
 @media screen and (hover: hover) {
-  :is(.school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group) > summary:hover > :is(span, h3),
-  .cv-group__summary > h2:hover {
-    text-decoration-color: currentColor;
+  :is(.school-card, .paper-card) > summary:hover > :is(span, h3),
+  .cv-group__summary:hover > h2 {
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.25em;
   }
 }
 
 :is(.school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group) > summary:focus-visible > :is(span, h3),
-.cv-group__summary:focus-visible > h2 {
-  text-decoration-color: currentColor;
+.cv-group__summary:focus-visible > h2,
+.paper-fulltext:focus-visible,
+.portfolio-work__title:focus-visible {
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
 }
 
-/* Pointer hover uses an underline; keep focus rings for keyboard navigation. */
+/* Keep focus rings for keyboard navigation. Button hover uses shading; plain expanders use underline. */
 summary:focus:not(:focus-visible),
 .portfolio-work__title:focus:not(:focus-visible) {
   outline: none;
@@ -411,6 +436,26 @@ details.cv-group:not([open]) > .cv-group__body {
   display: none;
 }
 
+/* Once a school is opened, compact the remaining schools first and present
+   the active school as a full-width heading immediately above its content. */
+.education--expanded .school-card > summary {
+  grid-column: auto;
+  grid-row: auto;
+  order: 0;
+}
+
+.education--expanded .school-card--active > summary {
+  grid-column: 1 / -1;
+  grid-row: auto;
+  order: 1;
+  margin-top: 1mm;
+}
+
+.education--expanded .school-stage {
+  grid-row: auto;
+  order: 2;
+}
+
 .school-card:not([open]) > .school-card__body {
   display: none;
 }
@@ -431,9 +476,9 @@ details.cv-group:not([open]) > .cv-group__body {
 
 .school-card > summary {
   display: grid;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  grid-template-columns: max-content max-content;
+  grid-template-columns: minmax(0, 1fr) max-content;
   gap: 2.5mm;
   align-items: baseline;
   padding: 0;
@@ -453,10 +498,18 @@ details.cv-group:not([open]) > .cv-group__body {
   font-weight: 700;
 }
 
+.school-card--active > summary .school-card__name {
+  font-size: clamp(16px, 2.4vw, 20px);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
 .school-card__degree {
   color: var(--muted);
   font-size: var(--type-meta);
+  justify-self: end;
   text-align: left;
+  text-decoration: none !important;
 }
 
 .school-card__body {
@@ -719,23 +772,137 @@ details.cv-group:not([open]) > .cv-group__body {
 .paper-card > summary,
 .portfolio-card > summary {
   display: grid;
-  width: fit-content;
   max-width: 100%;
-  grid-template-columns: minmax(0, 1fr);
   align-items: baseline;
   padding: 0;
   cursor: pointer;
   list-style: none;
 }
 
-.paper-card > summary span,
-.portfolio-card > summary span {
+.paper-card > summary {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 0.7em;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.portfolio-card > summary {
+  width: fit-content;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary > span,
+.activity-group__summary > h3 {
+  display: inline-flex;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 0.38em;
+  padding: 0.52em 1.42em 0.56em;
+  border: 0;
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow:
+    -0.6px -0.6px 0.8px rgba(255, 255, 255, 0.62),
+    1px 1px 4px rgba(150, 153, 146, 0.17);
+  line-height: 1.18;
+  text-decoration: none;
+  transition:
+    box-shadow 220ms ease,
+    color 180ms ease;
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary > span::before,
+:is(.portfolio-card, .portfolio-subcard) > summary > span::after,
+.activity-group__summary > h3::before,
+.activity-group__summary > h3::after {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: var(--paper);
+  content: "";
+  pointer-events: none;
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary > span::after,
+.activity-group__summary > h3::after {
+  background: #eeefeb;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary:hover > span,
+.activity-group__summary:hover > h3,
+:is(.portfolio-card, .portfolio-subcard) > summary:focus-visible > span,
+.activity-group__summary:focus-visible > h3 {
+  box-shadow:
+    -0.6px -0.6px 0.9px rgba(255, 255, 255, 0.7),
+    1.2px 1.2px 4.5px rgba(137, 141, 134, 0.23);
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary:hover > span::after,
+.activity-group__summary:hover > h3::after,
+:is(.portfolio-card, .portfolio-subcard) > summary:focus-visible > span::after,
+.activity-group__summary:focus-visible > h3::after {
+  opacity: 1;
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary:focus-visible > span::after,
+.activity-group__summary:focus-visible > h3::after {
+  background: #eeefeb;
+}
+
+:is(.portfolio-card, .portfolio-subcard)[open] > summary > span,
+:is(.portfolio-card, .portfolio-subcard).portfolio-card--active > summary > span,
+:is(.portfolio-card, .portfolio-subcard).portfolio-subcard--active > summary > span,
+.activity-group[open] > .activity-group__summary > h3,
+.activity-group.activity-group--active > .activity-group__summary > h3 {
+  color: var(--ink);
+}
+
+:is(.portfolio-card, .portfolio-subcard)[open] > summary > span::after,
+:is(.portfolio-card, .portfolio-subcard).portfolio-card--active > summary > span::after,
+:is(.portfolio-card, .portfolio-subcard).portfolio-subcard--active > summary > span::after,
+.activity-group[open] > .activity-group__summary > h3::after,
+.activity-group.activity-group--active > .activity-group__summary > h3::after {
+  background: #e8e9e4;
+  opacity: 1;
+}
+
+:is(.portfolio-card, .portfolio-subcard)[open] > summary .portfolio-work__year,
+:is(.portfolio-card, .portfolio-subcard).portfolio-card--active > summary .portfolio-work__year,
+:is(.portfolio-card, .portfolio-subcard).portfolio-subcard--active > summary .portfolio-work__year {
+  color: inherit;
+}
+
+.paper-card > summary > .paper-card__title {
   font-family: var(--serif);
   font-size: var(--type-secondary);
   font-weight: 700;
 }
 
-.paper-nav .paper-card--active[open] > summary > span {
+.portfolio-card > summary span {
+  font-family: var(--serif);
+  font-size: var(--type-body);
+  font-weight: 700;
+}
+
+.paper-card__status {
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: var(--type-meta);
+  font-weight: 400;
+  white-space: nowrap;
+  text-decoration: none !important;
+}
+
+.paper-nav .paper-card--active[open] > summary > .paper-card__title {
   font-size: clamp(16px, 2.4vw, 20px);
   font-weight: 700;
   line-height: 1.3;
@@ -813,7 +980,7 @@ details.cv-group:not([open]) > .cv-group__body {
   font-size: clamp(9px, 1.15vw, 10px);
   font-weight: 700;
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 0.25em;
 }
 
@@ -843,16 +1010,17 @@ details.cv-group:not([open]) > .cv-group__body {
   min-width: 0;
   width: 100%;
   order: 0;
-  margin-top: calc((var(--portfolio-activity-gap) * 2 - var(--portfolio-row-gap)) / 3);
+  margin-top: 0;
 }
 
 .portfolio-list {
-  --portfolio-row-gap: 0px;
-  --portfolio-activity-gap: clamp(5px, 1vw, 1.75mm);
+  --portfolio-row-gap: clamp(5px, 0.85vw, 2.8mm);
+  --portfolio-column-gap: clamp(3px, 0.55vw, 2mm);
+  --portfolio-activity-gap: var(--portfolio-row-gap);
   --portfolio-layout-row-gap: var(--portfolio-row-gap);
   display: flex;
   flex-wrap: wrap;
-  gap: var(--portfolio-row-gap) clamp(10px, 2.6vw, 5.5mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   align-items: flex-start;
 }
 
@@ -869,15 +1037,15 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 .portfolio-nav {
-  gap: var(--portfolio-row-gap) clamp(10px, 2.6vw, 5.5mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
 }
 
 .portfolio-subnav {
-  gap: 0 clamp(20px, 5vw, 11mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
 }
 
 .ongoing-project-list > .portfolio-subnav {
-  gap: var(--portfolio-row-gap, clamp(5px, 1vw, 2mm)) clamp(10px, 2.6vw, 5.5mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
 }
 
 .portfolio-list--expanded > .portfolio-nav {
@@ -1020,9 +1188,11 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 .portfolio-sublist {
+  --portfolio-row-gap: clamp(5px, 0.85vw, 2.8mm);
+  --portfolio-column-gap: clamp(3px, 0.55vw, 2mm);
   display: flex;
   flex-wrap: wrap;
-  gap: clamp(7px, 1.4vw, 3mm) clamp(20px, 5vw, 11mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   align-items: flex-start;
 }
 
@@ -1052,7 +1222,7 @@ details.cv-group:not([open]) > .cv-group__body {
 
 .portfolio-subcard > summary span {
   font-family: var(--serif);
-  font-size: var(--type-secondary);
+  font-size: var(--type-body);
   font-weight: 700;
 }
 
@@ -1091,6 +1261,15 @@ details.cv-group:not([open]) > .cv-group__body {
   color: var(--muted);
   font-family: var(--sans) !important;
   font-size: var(--type-meta) !important;
+}
+
+.portfolio-card__note {
+  margin-top: 1mm;
+  color: var(--muted);
+}
+
+.portfolio-card__note p {
+  font-size: var(--type-meta);
 }
 
 .portfolio-card__images img {
@@ -1146,12 +1325,14 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 .portfolio-image-trigger {
+  position: relative;
   display: block;
   width: 100%;
   margin: 0 0 1.5mm;
   padding: 0;
+  overflow: hidden;
   border: 0;
-  background: transparent;
+  background: #f2f2f0;
   cursor: zoom-in;
 }
 
@@ -1163,6 +1344,67 @@ details.cv-group:not([open]) > .cv-group__body {
 .portfolio-image-trigger > img {
   width: 100%;
   margin: 0;
+  opacity: 0;
+  transition: opacity 360ms ease;
+}
+
+.portfolio-image-trigger.is-loaded {
+  background: transparent;
+}
+
+.portfolio-image-trigger.is-loaded > img {
+  opacity: 1;
+}
+
+.portfolio-image-loading {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5mm;
+  align-items: center;
+  justify-content: center;
+  color: #777;
+  background: linear-gradient(105deg, #eeeeeb 20%, #f7f7f5 42%, #eeeeeb 64%);
+  background-size: 220% 100%;
+  font-family: var(--sans);
+  font-size: var(--type-meta);
+  pointer-events: none;
+  transition: opacity 280ms ease, visibility 280ms step-end;
+  animation: portfolio-image-loading-shimmer 1.8s ease-in-out infinite;
+}
+
+.portfolio-image-loading::before {
+  width: 5mm;
+  height: 5mm;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-top-color: rgba(0, 0, 0, 0.58);
+  border-radius: 50%;
+  content: "";
+  animation: portfolio-image-loading-spin 850ms linear infinite;
+}
+
+.portfolio-image-trigger.is-loaded > .portfolio-image-loading {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.portfolio-image-trigger.is-error > .portfolio-image-loading {
+  animation: none;
+}
+
+.portfolio-image-trigger.is-error > .portfolio-image-loading::before {
+  display: none;
+}
+
+@keyframes portfolio-image-loading-shimmer {
+  0%, 100% { background-position: 100% 0; }
+  50% { background-position: 0 0; }
+}
+
+@keyframes portfolio-image-loading-spin {
+  to { transform: rotate(360deg); }
 }
 
 .portfolio-image-row > .portfolio-image-trigger {
@@ -1233,7 +1475,7 @@ details.cv-group:not([open]) > .cv-group__body {
 .activity-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 clamp(20px, 5vw, 11mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   align-items: flex-start;
 }
 
@@ -1243,7 +1485,7 @@ details.cv-group:not([open]) > .cv-group__body {
   flex: 0 0 100%;
   width: 100%;
   min-width: 0;
-  gap: 0 clamp(20px, 5vw, 11mm);
+  gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   align-items: flex-start;
 }
 
@@ -1288,19 +1530,19 @@ details.cv-group:not([open]) > .cv-group__body {
 .activity-group__summary h3 {
   margin: 0;
   font-family: var(--serif);
-  font-size: var(--type-secondary);
+  font-size: var(--type-body);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .activity-nav .activity-group--active[open] > .activity-group__summary > h3 {
-  font-size: clamp(16px, 2.4vw, 20px);
+  font-size: var(--type-body);
   font-weight: 700;
   line-height: 1.3;
 }
 
 .activity-group__body {
-  padding: 0 0 var(--activity-content-bottom) 5mm;
+  padding: 3mm 0 var(--activity-content-bottom) 5mm;
 }
 
 .activity-stage {
@@ -1530,33 +1772,47 @@ details.cv-group:not([open]) > .cv-group__body {
   }
 
   .school-card > summary {
-    grid-template-columns: max-content max-content;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) max-content;
     gap: 6px;
     padding: 0;
   }
 
-  .paper-card > summary,
+  .paper-card > summary {
+    display: flex;
+    width: fit-content;
+    gap: 5px;
+    padding: 0;
+  }
+
   .portfolio-card > summary {
     grid-template-columns: minmax(0, 1fr);
     padding: 0;
   }
 
   .portfolio-list {
-    --portfolio-layout-row-gap: 0px;
-    gap: 0 6px;
+    --portfolio-row-gap: 5px;
+    --portfolio-column-gap: 3px;
+    --portfolio-layout-row-gap: var(--portfolio-row-gap);
+    gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   }
 
   .portfolio-nav {
-    gap: 0 6px;
+    gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   }
 
   .portfolio-card > summary span {
-    font-size: var(--type-secondary);
+    font-size: var(--type-body);
+  }
+
+  :is(.portfolio-card, .portfolio-subcard) > summary > span,
+  .activity-group__summary > h3 {
+    padding: 0.42em 1.14em 0.46em;
   }
 
   .portfolio-sublist,
   .portfolio-subnav {
-    gap: 0 24px;
+    gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   }
 
   .portfolio-subcard[open] > summary {
@@ -1569,7 +1825,7 @@ details.cv-group:not([open]) > .cv-group__body {
   }
 
   .activity-group__body {
-    padding: 0 0 var(--activity-content-bottom) 4px;
+    padding: 10px 0 var(--activity-content-bottom) 4px;
   }
 
   .paper-card__abstract {
@@ -1615,16 +1871,13 @@ details.cv-group:not([open]) > .cv-group__body {
     margin-bottom: 0;
   }
 
-  .portfolio-stage .portfolio-card__body {
+  .portfolio-stage .portfolio-card__body,
+  .portfolio-stage .activity-group__body {
     padding-bottom: 0;
   }
 
   .portfolio-substage .portfolio-subcard__body {
     margin-bottom: 0;
-    padding-bottom: 0;
-  }
-
-  .activity-stage .activity-group__body {
     padding-bottom: 0;
   }
 
@@ -1659,6 +1912,16 @@ details.cv-group:not([open]) > .cv-group__body {
     animation: none;
   }
 
+  .portfolio-image-loading,
+  .portfolio-image-loading::before {
+    animation: none;
+  }
+
+  .portfolio-image-trigger > img,
+  .portfolio-image-loading {
+    transition: none;
+  }
+
   :is(.school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group) > summary > :is(span, h3),
   .cv-group__summary > h2 {
     transition: none;
@@ -1666,6 +1929,14 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 @media print {
+  .portfolio-image-loading {
+    display: none !important;
+  }
+
+  .portfolio-image-trigger > img {
+    opacity: 1 !important;
+  }
+
   :is(.portfolio-card, .portfolio-subcard)[data-work-presentation] > summary,
   .portfolio-work__flight-layer,
   .portfolio-work__flight {
@@ -1772,14 +2043,20 @@ details.cv-group:not([open]) > .cv-group__body {
     display: block !important;
   }
 
-  .paper-nav .paper-card--active[open] > summary > span {
+  .paper-nav .paper-card--active[open] > summary > .paper-card__title {
     font-size: 12px;
     font-weight: 600;
     line-height: inherit;
   }
 
+  .school-card--active > summary .school-card__name {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: inherit;
+  }
+
   .activity-nav .activity-group--active[open] > .activity-group__summary > h3 {
-    font-size: 13px;
+    font-size: var(--type-body);
     font-weight: 600;
     line-height: inherit;
   }

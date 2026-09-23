@@ -8,6 +8,7 @@ let paperNav = null;
 let paperStage = null;
 const portfolioSections = Array.from(document.querySelectorAll(".portfolio-card"));
 const activitySections = Array.from(document.querySelectorAll(".activity-group"));
+const practiceSections = [...portfolioSections, ...activitySections];
 const secondarySections = Array.from(
   document.querySelectorAll(
     ".school-card, .portfolio-card, .activity-group, details.cv-group",
@@ -17,13 +18,21 @@ const embeddedPages = Array.from(document.querySelectorAll(".baike-window iframe
 const embeddedPageLoadingTimers = new WeakMap();
 const embeddedPagePreviewDelay = 3000;
 const backgroundSchoolBodies = new WeakMap();
+const backgroundPageLoading = {
+  started: false,
+  scheduled: false,
+  queue: [],
+  active: false,
+};
 const backgroundMediaLoading = {
   started: false,
   scheduled: false,
-  images: [],
-  pages: [],
-  imageActive: false,
-  pageActive: false,
+  documents: [],
+  primaryImages: [],
+  tailImages: [],
+  active: false,
+  controller: null,
+  loadedUrls: new Set(),
 };
 const downloadButton = document.querySelector("#download-cv");
 const profileName = document.querySelector("#page-title");
@@ -112,6 +121,10 @@ let activityInteractionLocked = false;
 let activityTransitionSerial = 0;
 let pendingActivitySection = null;
 let activeActivityTarget = null;
+let schoolInteractionLocked = false;
+let schoolTransitionSerial = 0;
+let pendingSchoolSection = null;
+let activeSchoolTarget = null;
 let activePortfolioSwitch = null;
 let pendingPortfolioSection = null;
 let activePortfolioTarget = null;
@@ -275,10 +288,11 @@ async function togglePortfolioSection(section) {
 
   const retentionSerial = prepareExpandableToggle(section);
   if (!isSubcard) loadPortfolioProject(section);
+  else activateDeferredImages(section);
   const workPositions = captureWorkPresentation(section);
   const titleElements = isSubcard
     ? [...sublist.querySelectorAll(":scope > .portfolio-subnav > .portfolio-subcard")]
-    : portfolioSections;
+    : practiceSections;
   const previousPositions = capturePortfolioPositions(titleElements);
   const outgoingBody = stage.firstElementChild;
   // Only first opening fades the bar; switches inherit an opaque white header.
@@ -286,7 +300,8 @@ async function togglePortfolioSection(section) {
   showStickyBar(isSubcard ? sublist.querySelector(".portfolio-subnav") : portfolioNav, section, firstOpening);
   showStickyBar(getExpandableBody(section)?.querySelector(".portfolio-work__heading"), section, firstOpening);
   const outgoingOwner = outgoingBody && (isSubcard
-    ? portfolioSubBodyOwners.get(outgoingBody) : portfolioBodyOwners.get(outgoingBody));
+    ? portfolioSubBodyOwners.get(outgoingBody)
+    : portfolioBodyOwners.get(outgoingBody) || activityBodyOwners.get(outgoingBody));
   const outgoingWork = outgoingOwner?.classList.contains("portfolio-work--presented")
     ? captureWorkPresentation(outgoingOwner, true) : null;
   const oldHeight = stage.getBoundingClientRect().height;
@@ -338,6 +353,7 @@ async function togglePortfolioSection(section) {
 
     closeOtherExpandableSections(section);
     if (isSubcard) section.classList.add("portfolio-subcard--active");
+    else if (section.classList.contains("activity-group")) section.classList.add("activity-group--active");
     else if (section.dataset.portfolioTail !== "true") section.classList.add("portfolio-card--active");
     section.open = true;
     markSectionOpened(section);
@@ -356,7 +372,9 @@ async function togglePortfolioSection(section) {
     const navigationTopOffset = outerPortfolioList ? portfolioNav?.offsetHeight || 0 : 0;
     const navigationScroll = scrollNavigationToTop(interactionList, 520, navigationTopOffset);
     if (outgoingWork) animateWorkPresentation(outgoingOwner, outgoingWork, false);
-    if (section.dataset.portfolioTail !== "true") animateWorkPresentation(section, workPositions);
+    if (section.dataset.portfolioTail !== "true") {
+      animateWorkPresentation(section, workPositions);
+    }
     const titleMovement = animatePortfolioLayout(previousPositions, titleElements);
 
     if (!prefersReducedMotion.matches) {
@@ -390,10 +408,9 @@ async function togglePortfolioSection(section) {
 
 function updatePortfolioNavigation() {
   if (!portfolioNav || !portfolioList) return;
-  const expanded = portfolioSections.some((section) => section.open);
+  const expanded = practiceSections.some((section) => section.open);
   portfolioList.classList.toggle("portfolio-list--expanded", expanded);
   portfolioList.style.setProperty("--portfolio-nav-height", `${expanded ? portfolioNav.offsetHeight : 0}px`);
-  activityList?.classList.toggle("activity-list--expanded", activitySections.some((section) => section.open));
 
   document.querySelectorAll(".portfolio-sublist").forEach((sublist) => {
     const nav = sublist.querySelector(":scope > .portfolio-subnav");
@@ -446,7 +463,7 @@ function capturePortfolioPositions(elements = getPortfolioMotionElements()) {
   return new Map(
     elements.map((element) => {
       const summary = element.matches(
-        ".paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
+        ".school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
       )
         ? element.querySelector(":scope > summary")
         : null;
@@ -456,7 +473,7 @@ function capturePortfolioPositions(elements = getPortfolioMotionElements()) {
         {
           rect: element.getBoundingClientRect(),
           summaryRect: summary?.getBoundingClientRect() || null,
-          titleFontSize: element.matches(".paper-card, .activity-group") && summary
+          titleFontSize: element.matches(".school-card, .paper-card, .activity-group") && summary
             ? Number.parseFloat(getComputedStyle(summary.firstElementChild).fontSize)
               * new DOMMatrix(getComputedStyle(summary).transform).a
             : null,
@@ -479,7 +496,7 @@ function animatePortfolioLayout(
     if (!previous) return;
 
     const summary = element.matches(
-      ".paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
+      ".school-card, .paper-card, .portfolio-card, .portfolio-subcard, .activity-group",
     )
       ? element.querySelector(":scope > summary")
       : null;
@@ -667,26 +684,22 @@ if (portfolioList) {
   portfolioStage.className = "portfolio-stage";
   portfolioStage.setAttribute("role", "region");
   portfolioStage.setAttribute("aria-live", "polite");
-  portfolioList.insertBefore(portfolioStage, activityZone);
+  if (activityZone) {
+    activityZone.after(portfolioStage);
+  } else {
+    portfolioList.append(portfolioStage);
+  }
 }
 
 if (activityList) {
-  activityNav = document.createElement("div");
-  activityNav.className = "activity-nav";
-  activityNav.setAttribute("aria-label", "展览与项目导航");
-  activityList.prepend(activityNav);
   activitySections.forEach((section) => {
     const body = section.querySelector(":scope > .activity-group__body");
-    if (body) activityBodyOwners.set(body, section);
-    activityNav.append(section);
+    if (body) {
+      activityBodyOwners.set(body, section);
+      ensureWorkPresentation(section, body);
+    }
   });
-  portfolioNavigationObserver.observe(activityNav);
-
-  activityStage = document.createElement("div");
-  activityStage.className = "activity-stage";
-  activityStage.setAttribute("role", "region");
-  activityStage.setAttribute("aria-live", "polite");
-  activityList.append(activityStage);
+  portfolioNavigationObserver.observe(activityList);
 }
 
 function fitEmbeddedPage(frame) {
@@ -741,7 +754,7 @@ function loadEmbeddedPage(frame) {
       spinner.setAttribute("aria-hidden", "true");
       const text = document.createElement("span");
       text.className = "baike-loading__text";
-      text.textContent = "正在加载百度百科…";
+      text.textContent = "正在加载空白页面…";
       loader.append(spinner, text);
       viewport.append(loader);
     }
@@ -749,10 +762,10 @@ function loadEmbeddedPage(frame) {
     viewport.classList.remove("is-loaded", "is-preview-released", "is-loading-slow", "is-loading-error");
     viewport.setAttribute("aria-busy", "true");
     viewport.querySelector(".baike-loading").removeAttribute("aria-hidden");
-    viewport.querySelector(".baike-loading__text").textContent = "正在加载百度百科…";
+    viewport.querySelector(".baike-loading__text").textContent = "正在加载空白页面…";
     clearEmbeddedPageLoadingTimers(frame);
     // A cross-origin iframe cannot report DOM readiness to this page without
-    // cooperation from Baidu. Hand off the preview early, but keep loading
+    // cooperation from the embedded page. Hand off the preview early, but keep loading
     // separate: only the iframe's load event marks the page as finished.
     embeddedPageLoadingTimers.set(frame, {
       preview: window.setTimeout(() => releaseEmbeddedPagePreview(frame), embeddedPagePreviewDelay),
@@ -765,6 +778,82 @@ function loadEmbeddedPage(frame) {
 
   frame.src = frame.dataset.src;
   frame.removeAttribute("data-src");
+}
+
+function clearBackgroundSchoolBody(body) {
+  const previous = body && backgroundSchoolBodies.get(body);
+  if (!previous) return;
+  body.classList.remove("school-card__body--background-loading");
+  body.style.removeProperty("--school-background-width");
+  body.inert = previous.inert;
+  backgroundSchoolBodies.delete(body);
+}
+
+function preloadBackgroundPage(frame) {
+  if (!frame.dataset.src) return Promise.resolve();
+  const body = frame.closest(".school-card__body");
+  const owner = body && schoolBodyOwners.get(body);
+  if (body && owner && !owner.open) {
+    backgroundSchoolBodies.set(body, { inert: body.inert });
+    body.inert = true;
+    body.style.setProperty("--school-background-width", `${body.closest("#education").clientWidth}px`);
+    body.classList.add("school-card__body--background-loading");
+  }
+
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      window.clearTimeout(timeout);
+      frame.removeEventListener("load", finish);
+      frame.removeEventListener("error", finish);
+      clearBackgroundSchoolBody(body);
+      resolve();
+    };
+    const timeout = window.setTimeout(finish, 20000);
+    frame.addEventListener("load", finish);
+    frame.addEventListener("error", finish);
+    loadEmbeddedPage(frame);
+  });
+}
+
+function scheduleBackgroundPageLoading(delay = 250) {
+  const state = backgroundPageLoading;
+  if (!state.started || state.scheduled || state.active || !state.queue.length) return;
+  state.scheduled = true;
+  window.setTimeout(() => {
+    state.scheduled = false;
+    drainBackgroundPageLoading();
+  }, delay);
+}
+
+function drainBackgroundPageLoading() {
+  const state = backgroundPageLoading;
+  if (document.hidden || !navigator.onLine || state.active) return;
+  while (state.queue.length && !state.queue[0].dataset.src) state.queue.shift();
+  const frame = state.queue.shift();
+  if (!frame) return;
+  state.active = true;
+  preloadBackgroundPage(frame).catch(() => undefined).finally(() => {
+    state.active = false;
+    scheduleBackgroundPageLoading(500);
+  });
+}
+
+function startBackgroundPageLoading() {
+  const state = backgroundPageLoading;
+  const connection = navigator.connection;
+  if (
+    state.started
+    || connection?.saveData
+    || ["slow-2g", "2g"].includes(connection?.effectiveType)
+  ) return;
+  state.started = true;
+  state.queue = embeddedPages.slice();
+  // the embedded page is a separate, user-side network lane: load one page at a time,
+  // independently from research papers and works on this server.
+  scheduleBackgroundPageLoading(2000);
 }
 
 embeddedPages.forEach((frame) => {
@@ -808,14 +897,16 @@ window.addEventListener("resize", () => {
   embeddedPages.forEach(fitEmbeddedPage);
 });
 
-function collectBackgroundImages() {
+function collectPortfolioBackgroundImages(includeTail) {
   const groups = [];
   portfolioSections.slice().sort((a, b) => getPortfolioYear(b) - getPortfolioYear(a))
     .forEach((section) => {
+      const isTail = section.dataset.portfolioTail === "true";
+      if (isTail !== includeTail) return;
       const scope = section.querySelector(":scope > .portfolio-card__template")?.content
         || getPortfolioBody(section);
       if (!scope) return;
-      if (section.dataset.portfolioTail === "true") {
+      if (isTail) {
         const substage = scope.querySelector(".portfolio-substage");
         scope.querySelectorAll(".portfolio-subcard").forEach((subcard) => {
           const body = getPortfolioSubBody(subcard, substage);
@@ -825,7 +916,6 @@ function collectBackgroundImages() {
         groups.push([...scope.querySelectorAll("img[src]")]);
       }
     });
-  groups.push([...document.querySelectorAll("#ongoing-projects img[src]")]);
 
   const sources = new Map();
   const animations = [];
@@ -852,70 +942,76 @@ function collectBackgroundImages() {
   return [...sources.values()];
 }
 
-function preloadBackgroundImage(source) {
-  if ([...document.images].some((image) => image.complete && image.naturalWidth > 0
-    && (image.currentSrc || image.src) === source.src)) return Promise.resolve();
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    let fallbackSrc = source.fallbackSrc;
-    image.decoding = "async";
-    image.fetchPriority = "low";
-    const finish = () => {
-      image.onload = null;
-      image.onerror = null;
-      resolve();
-    };
-    image.onload = finish;
-    image.onerror = () => {
-      if (!fallbackSrc) {
-        finish();
-        return;
-      }
-      const fallback = fallbackSrc;
-      fallbackSrc = null;
-      image.src = fallback;
-    };
-    // Use the browser's normal image cache. Do not clone work details, create
-    // object URLs, or retain every decoded image in JavaScript memory.
-    image.src = source.src;
+function collectBackgroundDocuments() {
+  const seen = new Set();
+  return paperButtons.flatMap((button) => {
+    const source = button.dataset.paperSrc;
+    if (!source) return [];
+    const url = new URL(source, document.baseURI).href;
+    if (seen.has(url)) return [];
+    seen.add(url);
+    return [url];
   });
 }
 
-function clearBackgroundSchoolBody(body) {
-  const previous = body && backgroundSchoolBodies.get(body);
-  if (!previous) return;
-  body.classList.remove("school-card__body--background-loading");
-  body.style.removeProperty("--school-background-width");
-  body.inert = previous.inert;
-  backgroundSchoolBodies.delete(body);
-}
-
-function preloadBackgroundPage(frame) {
-  // A user may already have opened this school before its queue turn.
-  if (!frame.dataset.src) return Promise.resolve();
-  const body = frame.closest(".school-card__body");
-  const owner = body && schoolBodyOwners.get(body);
-  if (body && owner && !owner.open) {
-    // Render offscreen, rather than display:none: Baidu's responsive scripts
-    // need a real viewport. Keep the original iframe and exclude the hidden
-    // body from focus/accessibility until it is opened or finishes loading.
-    backgroundSchoolBodies.set(body, { inert: body.inert });
-    body.inert = true;
-    body.style.setProperty("--school-background-width", `${body.closest("#education").clientWidth}px`);
-    body.classList.add("school-card__body--background-loading");
+async function consumeBackgroundResponse(response) {
+  if (!response.body) {
+    await response.arrayBuffer();
+    return;
   }
-  return new Promise((resolve) => {
-    const finish = () => {
-      frame.removeEventListener("load", finish);
-      frame.removeEventListener("error", finish);
-      clearBackgroundSchoolBody(body);
-      resolve();
-    };
-    frame.addEventListener("load", finish);
-    frame.addEventListener("error", finish);
-    loadEmbeddedPage(frame);
+  const reader = response.body.getReader();
+  while (!(await reader.read()).done) {
+    // Consume the stream without retaining the complete asset in JavaScript.
+  }
+}
+
+async function preloadBackgroundUrl(url, signal, parsePaperResources = false) {
+  const state = backgroundMediaLoading;
+  if (state.loadedUrls.has(url)) return;
+
+  const response = await fetch(url, {
+    cache: "default",
+    credentials: "same-origin",
+    priority: "low",
+    signal,
   });
+  if (!response.ok) throw new Error(`Background preload failed: ${response.status}`);
+
+  const contentType = response.headers.get("content-type") || "";
+  if (!parsePaperResources || !contentType.includes("text/html")) {
+    await consumeBackgroundResponse(response);
+    state.loadedUrls.add(url);
+    return;
+  }
+
+  const source = await response.text();
+  state.loadedUrls.add(url);
+  const parsed = new DOMParser().parseFromString(source, "text/html");
+  const paperResources = [...parsed.querySelectorAll("img[src], link[rel='stylesheet'][href]")]
+    .map((element) => new URL(element.getAttribute("src") || element.getAttribute("href"), response.url))
+    .filter((resource) => resource.origin === location.origin && resource.pathname.includes("/papers/"));
+
+  for (const resource of paperResources) {
+    await preloadBackgroundUrl(resource.href, signal);
+  }
+}
+
+function interruptBackgroundMediaLoading() {
+  backgroundMediaLoading.controller?.abort();
+}
+
+function nextBackgroundItem() {
+  const state = backgroundMediaLoading;
+  if (state.documents.length) {
+    return { type: "document", value: state.documents[0], queue: state.documents };
+  }
+  if (state.primaryImages.length) {
+    return { type: "image", value: state.primaryImages[0], queue: state.primaryImages };
+  }
+  if (state.tailImages.length) {
+    return { type: "image", value: state.tailImages[0], queue: state.tailImages };
+  }
+  return null;
 }
 
 function hasForegroundMediaLoading() {
@@ -933,7 +1029,7 @@ function hasForegroundMediaLoading() {
 
 function scheduleBackgroundMediaLoading(delay = 150) {
   const state = backgroundMediaLoading;
-  if (!state.started || state.scheduled || (!state.images.length && !state.pages.length)) return;
+  if (!state.started || state.scheduled || state.active || !nextBackgroundItem()) return;
   state.scheduled = true;
   window.setTimeout(() => {
     const run = () => {
@@ -950,44 +1046,72 @@ function scheduleBackgroundMediaLoading(delay = 150) {
 
 function drainBackgroundMediaLoading() {
   const state = backgroundMediaLoading;
-  // Let foreground interactions finish; hidden/offline pages resume on events.
+  // Background transfers always yield to visible interactions and never load
+  // third-party the embedded page pages. Those pages load only after a school is opened.
   if (document.hidden || !navigator.onLine) return;
   if (suppressSchoolNavigation || activeCollapse || portfolioInteractionLocked
     || activityInteractionLocked || hasForegroundMediaLoading()) {
     scheduleBackgroundMediaLoading(500);
     return;
   }
-  if (!state.imageActive && state.images.length) {
-    state.imageActive = true;
-    preloadBackgroundImage(state.images.shift()).catch(() => undefined).finally(() => {
-      state.imageActive = false;
-      scheduleBackgroundMediaLoading();
+
+  const item = nextBackgroundItem();
+  if (!item) return;
+  const url = item.type === "document" ? item.value : item.value.src;
+  const controller = new AbortController();
+  state.active = true;
+  state.controller = controller;
+  document.documentElement.dataset.preloadPhase = item.type === "document"
+    ? "documents"
+    : state.primaryImages.length ? "primary-works" : "more-works";
+
+  preloadBackgroundUrl(url, controller.signal, item.type === "document")
+    .then(() => item.queue.shift())
+    .catch((error) => {
+      // An interaction abort keeps the item at the front so it can resume from
+      // the browser cache. Permanent failures are skipped instead of stalling.
+      if (error.name !== "AbortError") item.queue.shift();
+    })
+    .finally(() => {
+      if (state.controller === controller) state.controller = null;
+      state.active = false;
+      if (!nextBackgroundItem()) {
+        document.documentElement.dataset.preloadPhase = "complete";
+        return;
+      }
+      scheduleBackgroundMediaLoading(controller.signal.aborted ? 1000 : 200);
     });
-  }
-  if (!state.pageActive && state.pages.length) {
-    state.pageActive = true;
-    preloadBackgroundPage(state.pages.shift()).catch(() => undefined).finally(() => {
-      state.pageActive = false;
-      scheduleBackgroundMediaLoading();
-    });
-  }
 }
 
 function startBackgroundMediaLoading() {
   const state = backgroundMediaLoading;
   if (state.started || navigator.connection?.saveData) return;
   state.started = true;
-  state.images = collectBackgroundImages();
-  state.pages = embeddedPages.slice();
-  // The initial text/portrait load first. Background work begins on an idle
-  // turn after a short head start for reading, not during HTML parsing.
-  scheduleBackgroundMediaLoading(1000);
+  state.documents = collectBackgroundDocuments();
+  state.primaryImages = collectPortfolioBackgroundImages(false);
+  state.tailImages = collectPortfolioBackgroundImages(true);
+  // The exact phase order is: research plan, papers, top-level works, then
+  // works inside “更多作品”. Only one background transfer runs at a time.
+  scheduleBackgroundMediaLoading(1200);
 }
 
 if (document.readyState === "complete") startBackgroundMediaLoading();
 else window.addEventListener("load", startBackgroundMediaLoading, { once: true });
-document.addEventListener("visibilitychange", () => scheduleBackgroundMediaLoading());
-window.addEventListener("online", () => scheduleBackgroundMediaLoading());
+if (document.readyState === "complete") startBackgroundPageLoading();
+else window.addEventListener("load", startBackgroundPageLoading, { once: true });
+document.addEventListener("visibilitychange", () => {
+  scheduleBackgroundMediaLoading();
+  scheduleBackgroundPageLoading();
+});
+window.addEventListener("online", () => {
+  scheduleBackgroundMediaLoading();
+  scheduleBackgroundPageLoading();
+});
+document.addEventListener("click", (event) => {
+  if (event.target.closest("summary, .paper-fulltext, .portfolio-image-trigger")) {
+    interruptBackgroundMediaLoading();
+  }
+});
 
 function prioritizePortfolioImages(scope) {
   scope.querySelectorAll("img").forEach((image) => {
@@ -997,8 +1121,19 @@ function prioritizePortfolioImages(scope) {
   });
 }
 
+function activateDeferredImages(scope) {
+  scope.querySelectorAll("img[data-src]").forEach((image) => {
+    image.src = image.dataset.src;
+    image.removeAttribute("data-src");
+    image.loading = "eager";
+    image.fetchPriority = "high";
+  });
+}
+
 function loadPortfolioProject(section) {
   if (section.dataset.loaded === "true") return;
+
+  interruptBackgroundMediaLoading();
 
   const template = section.querySelector(":scope > .portfolio-card__template");
   if (!template) return;
@@ -1034,10 +1169,17 @@ function ensureWorkName(section) {
   return name;
 }
 
+function getWorkSummaryTitle(section) {
+  if (section.classList.contains("activity-group")) {
+    return section.querySelector(":scope > .activity-group__summary > h3");
+  }
+  return ensureWorkName(section);
+}
+
 function ensureWorkPresentation(section, body) {
-  const name = ensureWorkName(section);
+  const name = getWorkSummaryTitle(section);
   const meta = body.querySelector(":scope > .portfolio-card__intro > .portfolio-card__meta");
-  if (!name || !meta || body.querySelector(":scope > .portfolio-work__heading")) return;
+  if (!name || body.querySelector(":scope > .portfolio-work__heading")) return;
 
   const heading = document.createElement("h3");
   heading.className = "portfolio-work__heading";
@@ -1050,17 +1192,19 @@ function ensureWorkPresentation(section, body) {
   heading.append(button);
   body.prepend(heading);
 
-  const year = document.createElement("span");
-  year.className = "portfolio-work__meta-year";
-  year.textContent = meta.textContent.match(/^\d{4}/)?.[0] || "";
-  const remainder = meta.textContent.slice(year.textContent.length);
-  meta.replaceChildren(year, document.createTextNode(remainder));
+  if (meta) {
+    const year = document.createElement("span");
+    year.className = "portfolio-work__meta-year";
+    year.textContent = meta.textContent.match(/^\d{4}/)?.[0] || "";
+    const remainder = meta.textContent.slice(year.textContent.length);
+    meta.replaceChildren(year, document.createTextNode(remainder));
+  }
   section.dataset.workPresentation = "true";
 }
 
 function captureWorkPresentation(section, expanded = false) {
   const body = expanded ? getExpandableBody(section) : null;
-  const title = expanded ? body?.querySelector(".portfolio-work__title") : ensureWorkName(section);
+  const title = expanded ? body?.querySelector(".portfolio-work__title") : getWorkSummaryTitle(section);
   const year = expanded ? body?.querySelector(".portfolio-work__meta-year")
     : section.querySelector(":scope > summary .portfolio-work__year");
   return [title, year].map((element) => {
@@ -1080,7 +1224,7 @@ function animateWorkPresentation(section, previous, expanded = true) {
   const body = expanded ? getExpandableBody(section) : null;
   const targets = expanded
     ? [body?.querySelector(".portfolio-work__title"), body?.querySelector(".portfolio-work__meta-year")]
-    : [ensureWorkName(section), section.querySelector(":scope > summary .portfolio-work__year")];
+    : [getWorkSummaryTitle(section), section.querySelector(":scope > summary .portfolio-work__year")];
   const flights = [];
   const layer = document.createElement("div");
   layer.className = "portfolio-work__flight-layer";
@@ -1144,6 +1288,8 @@ function animateWorkPresentation(section, previous, expanded = true) {
 portfolioSections.forEach(ensureWorkName);
 
 function getPortfolioBody(section) {
+  if (section.matches(".activity-group")) return getActivityBody(section);
+
   const localBody = section.querySelector(":scope > .portfolio-card__body");
   if (localBody) return localBody;
 
@@ -1158,19 +1304,20 @@ function movePortfolioBodyToStage(section) {
   if (!body || !portfolioStage) return;
 
   portfolioStage.replaceChildren(body);
-  if (section.dataset.workPresentation === "true") section.classList.add("portfolio-work--presented");
+  if (section.matches(".activity-group")) section.classList.add("activity-group--active");
+  else if (section.dataset.workPresentation === "true") section.classList.add("portfolio-work--presented");
   updatePortfolioNavigation();
   portfolioStage.setAttribute(
     "aria-label",
-    section.querySelector(":scope > summary")?.textContent.trim() || "作品详情",
+    section.querySelector(":scope > summary")?.textContent.trim() || "详情",
   );
 }
 
 function restoreStagedPortfolioBody(section = null) {
-  const body = portfolioStage?.querySelector(":scope > .portfolio-card__body");
+  const body = portfolioStage?.querySelector(":scope > .portfolio-card__body, :scope > .activity-group__body");
   if (!body) return;
 
-  const owner = portfolioBodyOwners.get(body);
+  const owner = portfolioBodyOwners.get(body) || activityBodyOwners.get(body);
   if (!owner || (section && owner !== section)) return;
 
   owner.append(body);
@@ -1222,7 +1369,7 @@ function getActivityBody(section) {
   const localBody = section.querySelector(":scope > .activity-group__body");
   if (localBody) return localBody;
 
-  const stagedBody = activityStage?.querySelector(":scope > .activity-group__body");
+  const stagedBody = portfolioStage?.querySelector(":scope > .activity-group__body");
   return stagedBody && activityBodyOwners.get(stagedBody) === section
     ? stagedBody
     : null;
@@ -1230,24 +1377,24 @@ function getActivityBody(section) {
 
 function moveActivityBodyToStage(section) {
   const body = getActivityBody(section);
-  if (!body || !activityStage) return;
+  if (!body || !portfolioStage) return;
 
-  activityStage.replaceChildren(body);
-  activityStage.setAttribute(
+  portfolioStage.replaceChildren(body);
+  portfolioStage.setAttribute(
     "aria-label",
     section.querySelector(":scope > summary")?.textContent.trim() || "艺术活动详情",
   );
 }
 
 function restoreStagedActivityBody(section = null) {
-  const body = activityStage?.querySelector(":scope > .activity-group__body");
+  const body = portfolioStage?.querySelector(":scope > .activity-group__body");
   if (!body) return;
 
   const owner = activityBodyOwners.get(body);
   if (!owner || (section && owner !== section)) return;
 
   owner.append(body);
-  activityStage.removeAttribute("aria-label");
+  portfolioStage.removeAttribute("aria-label");
 }
 
 function getActivityMotionElements() {
@@ -1415,18 +1562,19 @@ activitySections.forEach((section) => {
     if (suppressSchoolNavigation) return;
 
     event.preventDefault();
-    toggleActivitySection(section);
+    togglePortfolioSection(section);
   });
 
   section.addEventListener("toggle", () => {
     if (suppressSchoolNavigation || section.open) return;
     restoreStagedActivityBody(section);
     section.classList.remove("activity-group--active");
+    updatePortfolioNavigation();
   });
 
   if (section.open) {
     section.classList.add("activity-group--active");
-    moveActivityBodyToStage(section);
+    movePortfolioBodyToStage(section);
   }
 });
 
@@ -1473,48 +1621,108 @@ function moveSchoolBodyToStage(section) {
   schedulePortfolioStickyUpdate();
 }
 
+function getSchoolMotionElements() {
+  const followingElements = [];
+  let followingSection = educationSection?.nextElementSibling;
+
+  while (followingSection) {
+    followingElements.push(followingSection);
+    followingSection = followingSection.nextElementSibling;
+  }
+
+  const footer = document.querySelector(".resume-footer");
+  if (footer) followingElements.push(footer);
+
+  return [...schoolSections, ...followingElements];
+}
+
+function runSchoolTransition(previousPositions, motionElements, targetSection) {
+  const transitionSerial = ++schoolTransitionSerial;
+  activeSchoolTarget = targetSection;
+  schoolInteractionLocked = true;
+  schoolList?.setAttribute("aria-busy", "true");
+
+  return animatePortfolioLayout(previousPositions, motionElements).finally(() => {
+    if (transitionSerial !== schoolTransitionSerial) return;
+
+    schoolInteractionLocked = false;
+    activeSchoolTarget = null;
+    schoolList?.removeAttribute("aria-busy");
+
+    const pendingSection = pendingSchoolSection;
+    pendingSchoolSection = null;
+    if (pendingSection?.isConnected) toggleSchoolSection(pendingSection);
+  });
+}
+
+function toggleSchoolSection(section) {
+  if (suppressSchoolNavigation) {
+    pendingSchoolSection = null;
+    return;
+  }
+
+  if (schoolInteractionLocked) {
+    pendingSchoolSection = section === activeSchoolTarget ? null : section;
+    return;
+  }
+
+  const motionElements = getSchoolMotionElements();
+  if (section.open) {
+    if (isAccidentalEarlyClose(section)) return;
+    startAnimatedCollapse(section, motionElements);
+    return;
+  }
+
+  const retentionSerial = prepareExpandableToggle(section);
+  const previousPositions = capturePortfolioPositions(motionElements);
+  const switching = schoolSections.some((other) => other !== section && other.open);
+  showStickyBar(schoolList, section, !switching);
+  closeOtherExpandableSections(section);
+  section.classList.add("school-card--active");
+  section.open = true;
+  markSectionOpened(section);
+  moveSchoolBodyToStage(section);
+
+  const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
+  if (frame) loadEmbeddedPage(frame);
+
+  const layoutTransition = runSchoolTransition(previousPositions, motionElements, section);
+  const navigationScroll = scrollNavigationToTop(educationSection);
+  revealPortfolioElement(getSchoolBody(section));
+  Promise.all([layoutTransition, navigationScroll]).finally(() => {
+    settleRetainedViewportHeight(retentionSerial);
+  });
+}
+
 schoolSections.forEach((section) => {
   const summary = section.querySelector(":scope > summary");
 
   if (section.open) {
+    section.classList.add("school-card--active");
     moveSchoolBodyToStage(section);
     const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
     if (frame) loadEmbeddedPage(frame);
   }
 
-  summary?.addEventListener("click", () => {
-    if (!section.open && !suppressSchoolNavigation) {
-      schoolScrollPositions.set(section, window.scrollY);
-      showStickyBar(schoolList, section, !schoolSections.some((other) => other.open));
-    }
+  summary?.addEventListener("click", (event) => {
+    if (suppressSchoolNavigation) return;
+    event.preventDefault();
+    if (!section.open) schoolScrollPositions.set(section, window.scrollY);
+    toggleSchoolSection(section);
   });
 
   section.addEventListener("toggle", () => {
-    if (suppressSchoolNavigation) return;
+    if (suppressSchoolNavigation || section.open) return;
 
-    if (!section.open) {
-      restoreStagedSchoolBody(section);
-      if (automaticallyClosedSchools.has(section)) {
-        automaticallyClosedSchools.delete(section);
-        schoolScrollPositions.delete(section);
-        return;
-      }
-
+    restoreStagedSchoolBody(section);
+    section.classList.remove("school-card--active");
+    if (automaticallyClosedSchools.has(section)) {
+      automaticallyClosedSchools.delete(section);
       schoolScrollPositions.delete(section);
       return;
     }
 
-    closeOtherExpandableSections(section);
-    moveSchoolBodyToStage(section);
-    const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
-    if (frame) loadEmbeddedPage(frame);
-
-    const retentionSerial = expansionRetentionSerials.get(section);
-    window.requestAnimationFrame(() => {
-      scrollNavigationToTop(educationSection).finally(() => {
-        settleRetainedViewportHeight(retentionSerial);
-      });
-    });
+    schoolScrollPositions.delete(section);
   });
 });
 
@@ -1534,6 +1742,7 @@ function closeExpandableSection(section) {
 
   if (section.classList.contains("school-card")) {
     restoreStagedSchoolBody(section);
+    section.classList.remove("school-card--active");
     automaticallyClosedSchools.add(section);
     schoolScrollPositions.delete(section);
   }
@@ -1680,7 +1889,10 @@ function startAnimatedCollapse(section, motionElements = getPortfolioMotionEleme
     schedulePortfolioStickyUpdate();
   };
 
-  section.classList.remove("paper-card--active", "portfolio-card--active", "portfolio-subcard--active", "activity-group--active");
+  section.classList.remove("school-card--active", "paper-card--active", "portfolio-card--active", "portfolio-subcard--active", "activity-group--active");
+  if (section.classList.contains("school-card")) {
+    educationSection?.classList.remove("education--expanded");
+  }
   if (workPositions) {
     section.classList.remove("portfolio-work--presented");
     updatePortfolioNavigation();
@@ -1688,7 +1900,7 @@ function startAnimatedCollapse(section, motionElements = getPortfolioMotionEleme
     window.scrollTo({ top: startY, behavior: "instant" });
     animateWorkPresentation(section, workPositions, false);
     body.querySelector(".portfolio-work__heading").style.visibility = "hidden";
-    body.querySelector(".portfolio-work__meta-year").style.visibility = "hidden";
+    body.querySelector(".portfolio-work__meta-year")?.style.setProperty("visibility", "hidden");
   }
   animatePortfolioLayout(positions, motionElements);
   window.scrollTo({ top: startY, behavior: "instant" });
@@ -1726,13 +1938,7 @@ function prepareExpandableToggle(section) {
 function preservePageHeightBeforeToggle(event) {
   const summary = event.target.closest?.("summary");
   const section = summary?.parentElement;
-  if (
-    !section?.matches(
-      ".school-card, details.cv-group",
-    )
-  ) {
-    return;
-  }
+  if (!section?.matches("details.cv-group")) return;
 
   if (section.open) {
     event.preventDefault();
@@ -1772,15 +1978,38 @@ function setupImageZoom(scope) {
   scope.querySelectorAll(".portfolio-card__images img").forEach((media) => {
     if (media.closest(".portfolio-image-trigger")) return;
     const button = document.createElement("button");
+    const loadingIndicator = document.createElement("span");
     button.type = "button";
-    button.className = "portfolio-image-trigger";
+    button.className = "portfolio-image-trigger is-loading";
     button.setAttribute("aria-label", `放大查看：${media.alt || media.getAttribute("aria-label")}`);
     button.setAttribute("aria-haspopup", "dialog");
     button.setAttribute("aria-controls", "image-viewer");
+    button.setAttribute("aria-busy", "true");
+    loadingIndicator.className = "portfolio-image-loading";
+    loadingIndicator.textContent = "图片加载中";
+    loadingIndicator.setAttribute("aria-hidden", "true");
     const ratio = media.style.getPropertyValue("--image-ratio");
     if (ratio) button.style.setProperty("--image-ratio", ratio);
     media.before(button);
-    button.append(media);
+    button.append(loadingIndicator, media);
+
+    const markLoaded = () => {
+      button.classList.remove("is-loading", "is-error");
+      button.classList.add("is-loaded");
+      button.setAttribute("aria-busy", "false");
+      media.removeAttribute("data-fallback-state");
+    };
+    const markFailed = () => {
+      if (media.dataset.fallbackState === "loading") return;
+      button.classList.remove("is-loading", "is-loaded");
+      button.classList.add("is-error");
+      button.setAttribute("aria-busy", "false");
+      loadingIndicator.textContent = "图片加载失败";
+    };
+
+    media.addEventListener("load", markLoaded);
+    media.addEventListener("error", markFailed);
+    if (media.complete && media.naturalWidth > 0) markLoaded();
   });
 }
 
@@ -1788,16 +2017,23 @@ setupImageZoom(document.querySelector("#ongoing-projects"));
 
 document.addEventListener("error", (event) => {
   const image = event.target;
-  if (!(image instanceof HTMLImageElement) || !image.dataset.fallbackSrc) return;
-  image.src = image.dataset.fallbackSrc;
-  delete image.dataset.fallbackSrc;
+  if (!(image instanceof HTMLImageElement)) return;
+  if (image.dataset.fallbackSrc) {
+    image.dataset.fallbackState = "loading";
+    image.src = image.dataset.fallbackSrc;
+    delete image.dataset.fallbackSrc;
+    return;
+  }
+  if (image.dataset.fallbackState === "loading") {
+    image.dataset.fallbackState = "failed";
+  }
 }, true);
 
 document.addEventListener("click", (event) => {
   const trigger = event.target.closest?.(".portfolio-image-trigger");
   if (!trigger || !imageViewer || !imageViewerImage || suppressSchoolNavigation) return;
   const media = trigger.querySelector("img");
-  if (!media) return;
+  if (!media?.naturalWidth) return;
   imageViewerImage.src = media.currentSrc || media.src;
   imageViewerImage.alt = media.alt;
   imageViewerImage.width = media.naturalWidth || media.width;
@@ -1830,6 +2066,7 @@ paperButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const source = button.dataset.paperSrc;
     if (!source) return;
+    interruptBackgroundMediaLoading();
 
     if (paperViewer && typeof paperViewer.showModal === "function") {
       if (paperViewerTitle) {
@@ -1885,6 +2122,7 @@ function expandForPrint() {
   printableSections.forEach((item) => {
     item.open = true;
   });
+  activateDeferredImages(document);
   prioritizePortfolioImages(document);
 }
 
@@ -1912,7 +2150,7 @@ function restoreAfterPrint() {
     section.classList.toggle("activity-group--active", section.open);
   });
   const openActivity = activitySections.find((section) => section.open);
-  if (openActivity) moveActivityBodyToStage(openActivity);
+  if (openActivity) movePortfolioBodyToStage(openActivity);
 
   document.querySelectorAll(".portfolio-sublist").forEach((sublist) => {
     const openSubcard = sublist.querySelector(
@@ -1938,8 +2176,7 @@ function restoreAfterPrint() {
 }
 
 downloadButton?.addEventListener("click", () => {
-  expandForPrint();
-  window.setTimeout(() => window.print(), 500);
+  window.open("blank.html", "_blank", "noopener,noreferrer");
 });
 
 window.addEventListener("beforeprint", expandForPrint);
