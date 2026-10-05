@@ -1,5 +1,5 @@
 :root {
-  --paper: #f8f8f5;
+  --paper: #f4f4f0;
   --ink: #1F1F1F;
   --muted: #66645f;
   --wash: #f5f5f2;
@@ -28,7 +28,7 @@ html {
 body {
   margin: 0;
   color: var(--ink);
-  background: #e8e8e6;
+  background: #e4e4e1;
   font-family: var(--sans);
   font-size: var(--type-body);
   line-height: var(--content-line-height);
@@ -802,18 +802,24 @@ details.cv-group:not([open]) > .cv-group__body {
   max-width: 100%;
   align-items: baseline;
   gap: 0.38em;
-  padding: 0.52em 1.42em 0.56em;
+  padding: 0.975em 1.42em 1.05em;
   border: 0;
   border-radius: 6px;
-  background: var(--paper);
+  background: transparent;
   box-shadow:
-    -0.6px -0.6px 0.8px rgba(255, 255, 255, 0.62),
-    1px 1px 4px rgba(150, 153, 146, 0.17);
+    -1.2px -1.2px 3px rgba(255, 255, 255, 0.78),
+    1.2px 1.2px 3px rgba(150, 153, 146, 0.18);
   line-height: 1.18;
   text-decoration: none;
   transition:
     box-shadow 220ms ease,
     color 180ms ease;
+}
+
+:is(.portfolio-card, .portfolio-subcard) > summary > span {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.14em;
 }
 
 :is(.portfolio-card, .portfolio-subcard) > summary > span::before,
@@ -825,16 +831,20 @@ details.cv-group:not([open]) > .cv-group__body {
   inset: 0;
   border: 0;
   border-radius: inherit;
-  background: var(--paper);
+  background:
+    linear-gradient(90deg, rgba(210, 211, 205, 0.42), rgba(210, 211, 205, 0) 34%),
+    var(--paper);
   content: "";
   pointer-events: none;
 }
 
 :is(.portfolio-card, .portfolio-subcard) > summary > span::after,
 .activity-group__summary > h3::after {
-  background: #eeefeb;
+  background:
+    linear-gradient(90deg, rgba(202, 203, 197, 0.46), rgba(202, 203, 197, 0) 34%),
+    var(--paper);
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity 520ms ease;
 }
 
 :is(.portfolio-card, .portfolio-subcard) > summary:hover > span,
@@ -842,8 +852,8 @@ details.cv-group:not([open]) > .cv-group__body {
 :is(.portfolio-card, .portfolio-subcard) > summary:focus-visible > span,
 .activity-group__summary:focus-visible > h3 {
   box-shadow:
-    -0.6px -0.6px 0.9px rgba(255, 255, 255, 0.7),
-    1.2px 1.2px 4.5px rgba(137, 141, 134, 0.23);
+    -1.3px -1.3px 3.4px rgba(255, 255, 255, 0.86),
+    1.3px 1.3px 3.4px rgba(137, 141, 134, 0.23);
 }
 
 :is(.portfolio-card, .portfolio-subcard) > summary:hover > span::after,
@@ -855,7 +865,9 @@ details.cv-group:not([open]) > .cv-group__body {
 
 :is(.portfolio-card, .portfolio-subcard) > summary:focus-visible > span::after,
 .activity-group__summary:focus-visible > h3::after {
-  background: #eeefeb;
+  background:
+    linear-gradient(90deg, rgba(202, 203, 197, 0.46), rgba(202, 203, 197, 0) 34%),
+    var(--paper);
 }
 
 :is(.portfolio-card, .portfolio-subcard)[open] > summary > span,
@@ -871,8 +883,15 @@ details.cv-group:not([open]) > .cv-group__body {
 :is(.portfolio-card, .portfolio-subcard).portfolio-subcard--active > summary > span::after,
 .activity-group[open] > .activity-group__summary > h3::after,
 .activity-group.activity-group--active > .activity-group__summary > h3::after {
-  background: #e8e9e4;
+  background:
+    linear-gradient(90deg, rgba(194, 195, 189, 0.5), rgba(194, 195, 189, 0) 34%),
+    var(--paper);
   opacity: 1;
+}
+
+:is(.portfolio-card, .portfolio-subcard).expandable-button--closing > summary > span::after,
+.activity-group.expandable-button--closing > .activity-group__summary > h3::after {
+  opacity: 0;
 }
 
 :is(.portfolio-card, .portfolio-subcard)[open] > summary .portfolio-work__year,
@@ -1014,8 +1033,8 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 .portfolio-list {
-  --portfolio-row-gap: clamp(5px, 0.85vw, 2.8mm);
-  --portfolio-column-gap: clamp(3px, 0.55vw, 2mm);
+  --portfolio-column-gap: clamp(6px, 1vw, 3.2mm);
+  --portfolio-row-gap: var(--portfolio-column-gap);
   --portfolio-activity-gap: var(--portfolio-row-gap);
   --portfolio-layout-row-gap: var(--portfolio-row-gap);
   display: flex;
@@ -1077,6 +1096,7 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 :is(.portfolio-card, .portfolio-subcard) > summary .portfolio-work__year {
+  display: inline;
   margin-left: 0.4em;
   color: var(--muted);
   font-family: var(--sans);
@@ -1188,8 +1208,8 @@ details.cv-group:not([open]) > .cv-group__body {
 }
 
 .portfolio-sublist {
-  --portfolio-row-gap: clamp(5px, 0.85vw, 2.8mm);
-  --portfolio-column-gap: clamp(3px, 0.55vw, 2mm);
+  --portfolio-column-gap: clamp(6px, 1vw, 3.2mm);
+  --portfolio-row-gap: var(--portfolio-column-gap);
   display: flex;
   flex-wrap: wrap;
   gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
@@ -1791,8 +1811,8 @@ details.cv-group:not([open]) > .cv-group__body {
   }
 
   .portfolio-list {
-    --portfolio-row-gap: 5px;
-    --portfolio-column-gap: 3px;
+    --portfolio-row-gap: 6px;
+    --portfolio-column-gap: var(--portfolio-row-gap);
     --portfolio-layout-row-gap: var(--portfolio-row-gap);
     gap: var(--portfolio-row-gap) var(--portfolio-column-gap);
   }
@@ -1807,7 +1827,7 @@ details.cv-group:not([open]) > .cv-group__body {
 
   :is(.portfolio-card, .portfolio-subcard) > summary > span,
   .activity-group__summary > h3 {
-    padding: 0.42em 1.14em 0.46em;
+    padding: 0.79em 1.14em 0.86em;
   }
 
   .portfolio-sublist,
