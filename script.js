@@ -14,16 +14,6 @@ const secondarySections = Array.from(
     ".school-card, .portfolio-card, .activity-group, details.cv-group",
   ),
 );
-const embeddedPages = Array.from(document.querySelectorAll(".baike-window iframe[data-src]"));
-const embeddedPageLoadingTimers = new WeakMap();
-const embeddedPagePreviewDelay = 3000;
-const backgroundSchoolBodies = new WeakMap();
-const backgroundPageLoading = {
-  started: false,
-  scheduled: false,
-  queue: [],
-  active: false,
-};
 const backgroundMediaLoading = {
   started: false,
   scheduled: false,
@@ -137,6 +127,7 @@ const sectionOpenedAt = new WeakMap();
 const accidentalCloseGuardDuration = 420;
 
 function markSectionOpened(section) {
+  section.classList.remove("expandable-button--closing");
   sectionOpenedAt.set(section, performance.now());
 }
 
@@ -573,15 +564,17 @@ function revealPortfolioElement(element) {
   });
 }
 
+const paperBodySelector = ":scope > .paper-card__body, :scope > .paper-card__abstract";
+
 function getPaperBody(section) {
-  const localBody = section.querySelector(":scope > .paper-card__abstract");
+  const localBody = section.querySelector(paperBodySelector);
   if (localBody) return localBody;
-  const stagedBody = paperStage?.querySelector(":scope > .paper-card__abstract");
+  const stagedBody = paperStage?.querySelector(paperBodySelector);
   return stagedBody && paperBodyOwners.get(stagedBody) === section ? stagedBody : null;
 }
 
 function restoreStagedPaperBody(section = null) {
-  const body = paperStage?.querySelector(":scope > .paper-card__abstract");
+  const body = paperStage?.querySelector(paperBodySelector);
   const owner = body && paperBodyOwners.get(body);
   if (!owner || (section && owner !== section)) return;
   owner.append(body);
@@ -640,7 +633,7 @@ if (paperList) {
   paperList.prepend(paperNav);
 
   paperSections.forEach((section) => {
-    const body = section.querySelector(":scope > .paper-card__abstract");
+    const body = section.querySelector(paperBodySelector);
     if (body) paperBodyOwners.set(body, section);
     paperNav.append(section);
 
@@ -701,201 +694,6 @@ if (activityList) {
   });
   portfolioNavigationObserver.observe(activityList);
 }
-
-function fitEmbeddedPage(frame) {
-  const viewport = frame.closest(".baike-window__viewport");
-  if (!viewport) return;
-
-  const browserWidth = document.documentElement.clientWidth;
-  // Pre-set dimensions even before a closed card has a background layout box.
-  const visibleWidth = viewport.clientWidth
-    || Math.max(1, (frame.closest("#education")?.clientWidth || browserWidth) - 2);
-  const visibleHeight = viewport.clientHeight
-    || Number.parseFloat(getComputedStyle(viewport).height)
-    || 360;
-  const sourceWidth = Math.max(visibleWidth, browserWidth);
-  const scale = Math.min(1, visibleWidth / sourceWidth);
-
-  frame.style.width = `${sourceWidth}px`;
-  frame.style.height = `${Math.ceil(visibleHeight / scale)}px`;
-  frame.style.transform = `scale(${scale})`;
-}
-
-function clearEmbeddedPageLoadingTimers(frame) {
-  const timers = embeddedPageLoadingTimers.get(frame);
-  if (!timers) return;
-  window.clearTimeout(timers.preview);
-  window.clearTimeout(timers.slow);
-  embeddedPageLoadingTimers.delete(frame);
-}
-
-function releaseEmbeddedPagePreview(frame) {
-  const viewport = frame.closest(".baike-window__viewport");
-  if (!viewport) return;
-  viewport.classList.add("is-preview-released");
-  if (viewport.classList.contains("is-loading") && !viewport.classList.contains("is-loading-slow")) {
-    viewport.querySelector(".baike-loading__text").textContent = "页面继续加载中…";
-  }
-}
-
-function loadEmbeddedPage(frame) {
-  fitEmbeddedPage(frame);
-  if (!frame.dataset.src) return;
-
-  const viewport = frame.closest(".baike-window__viewport");
-  if (viewport) {
-    if (!viewport.querySelector(".baike-loading")) {
-      const loader = document.createElement("div");
-      loader.className = "baike-loading";
-      loader.setAttribute("role", "status");
-      loader.setAttribute("aria-live", "polite");
-      const spinner = document.createElement("span");
-      spinner.className = "baike-loading__spinner";
-      spinner.setAttribute("aria-hidden", "true");
-      const text = document.createElement("span");
-      text.className = "baike-loading__text";
-      text.textContent = "正在加载空白页面…";
-      loader.append(spinner, text);
-      viewport.append(loader);
-    }
-    viewport.classList.add("is-loading");
-    viewport.classList.remove("is-loaded", "is-preview-released", "is-loading-slow", "is-loading-error");
-    viewport.setAttribute("aria-busy", "true");
-    viewport.querySelector(".baike-loading").removeAttribute("aria-hidden");
-    viewport.querySelector(".baike-loading__text").textContent = "正在加载空白页面…";
-    clearEmbeddedPageLoadingTimers(frame);
-    // A cross-origin iframe cannot report DOM readiness to this page without
-    // cooperation from the embedded page. Hand off the preview early, but keep loading
-    // separate: only the iframe's load event marks the page as finished.
-    embeddedPageLoadingTimers.set(frame, {
-      preview: window.setTimeout(() => releaseEmbeddedPagePreview(frame), embeddedPagePreviewDelay),
-      slow: window.setTimeout(() => {
-        viewport.classList.add("is-loading-slow");
-        viewport.querySelector(".baike-loading__text").textContent = "加载较慢，可点击上方“打开原页”查看";
-      }, 15000),
-    });
-  }
-
-  frame.src = frame.dataset.src;
-  frame.removeAttribute("data-src");
-}
-
-function clearBackgroundSchoolBody(body) {
-  const previous = body && backgroundSchoolBodies.get(body);
-  if (!previous) return;
-  body.classList.remove("school-card__body--background-loading");
-  body.style.removeProperty("--school-background-width");
-  body.inert = previous.inert;
-  backgroundSchoolBodies.delete(body);
-}
-
-function preloadBackgroundPage(frame) {
-  if (!frame.dataset.src) return Promise.resolve();
-  const body = frame.closest(".school-card__body");
-  const owner = body && schoolBodyOwners.get(body);
-  if (body && owner && !owner.open) {
-    backgroundSchoolBodies.set(body, { inert: body.inert });
-    body.inert = true;
-    body.style.setProperty("--school-background-width", `${body.closest("#education").clientWidth}px`);
-    body.classList.add("school-card__body--background-loading");
-  }
-
-  return new Promise((resolve) => {
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      window.clearTimeout(timeout);
-      frame.removeEventListener("load", finish);
-      frame.removeEventListener("error", finish);
-      clearBackgroundSchoolBody(body);
-      resolve();
-    };
-    const timeout = window.setTimeout(finish, 20000);
-    frame.addEventListener("load", finish);
-    frame.addEventListener("error", finish);
-    loadEmbeddedPage(frame);
-  });
-}
-
-function scheduleBackgroundPageLoading(delay = 250) {
-  const state = backgroundPageLoading;
-  if (!state.started || state.scheduled || state.active || !state.queue.length) return;
-  state.scheduled = true;
-  window.setTimeout(() => {
-    state.scheduled = false;
-    drainBackgroundPageLoading();
-  }, delay);
-}
-
-function drainBackgroundPageLoading() {
-  const state = backgroundPageLoading;
-  if (document.hidden || !navigator.onLine || state.active) return;
-  while (state.queue.length && !state.queue[0].dataset.src) state.queue.shift();
-  const frame = state.queue.shift();
-  if (!frame) return;
-  state.active = true;
-  preloadBackgroundPage(frame).catch(() => undefined).finally(() => {
-    state.active = false;
-    scheduleBackgroundPageLoading(500);
-  });
-}
-
-function startBackgroundPageLoading() {
-  const state = backgroundPageLoading;
-  const connection = navigator.connection;
-  if (
-    state.started
-    || connection?.saveData
-    || ["slow-2g", "2g"].includes(connection?.effectiveType)
-  ) return;
-  state.started = true;
-  state.queue = embeddedPages.slice();
-  // the embedded page is a separate, user-side network lane: load one page at a time,
-  // independently from research papers and works on this server.
-  scheduleBackgroundPageLoading(2000);
-}
-
-embeddedPages.forEach((frame) => {
-  frame.addEventListener("load", () => {
-    fitEmbeddedPage(frame);
-    // Ignore the iframe's initial empty document before lazy loading starts.
-    if (frame.dataset.src) return;
-    clearEmbeddedPageLoadingTimers(frame);
-    const viewport = frame.closest(".baike-window__viewport");
-    viewport?.classList.remove("is-loading", "is-loading-slow", "is-loading-error");
-    viewport?.classList.add("is-loaded", "is-preview-released");
-    viewport?.setAttribute("aria-busy", "false");
-    viewport?.querySelector(".baike-loading")?.setAttribute("aria-hidden", "true");
-  });
-  frame.addEventListener("error", () => {
-    clearEmbeddedPageLoadingTimers(frame);
-    const viewport = frame.closest(".baike-window__viewport");
-    viewport?.classList.remove("is-loading", "is-loading-slow", "is-loaded");
-    viewport?.classList.add("is-loading-error", "is-preview-released");
-    viewport?.setAttribute("aria-busy", "false");
-    viewport?.querySelector(".baike-loading")?.removeAttribute("aria-hidden");
-    const text = viewport?.querySelector(".baike-loading__text");
-    if (text) text.textContent = "暂时无法加载，可点击上方“打开原页”查看";
-  });
-});
-
-if ("ResizeObserver" in window) {
-  const embeddedPageObserver = new ResizeObserver((entries) => {
-    entries.forEach((entry) => {
-      const frame = entry.target.querySelector("iframe");
-      if (frame) fitEmbeddedPage(frame);
-    });
-  });
-
-  document.querySelectorAll(".baike-window__viewport").forEach((viewport) => {
-    embeddedPageObserver.observe(viewport);
-  });
-}
-
-window.addEventListener("resize", () => {
-  embeddedPages.forEach(fitEmbeddedPage);
-});
 
 function collectPortfolioBackgroundImages(includeTail) {
   const groups = [];
@@ -1015,9 +813,6 @@ function nextBackgroundItem() {
 }
 
 function hasForegroundMediaLoading() {
-  if (schoolSections.some((section) => section.open
-    && getSchoolBody(section)?.querySelector(".baike-window__viewport.is-loading"))) return true;
-
   return [...document.querySelectorAll(".portfolio-stage img, #ongoing-projects .portfolio-subcard[open] img")]
     .some((image) => {
       if (image.complete || image.getClientRects().length === 0) return false;
@@ -1047,7 +842,7 @@ function scheduleBackgroundMediaLoading(delay = 150) {
 function drainBackgroundMediaLoading() {
   const state = backgroundMediaLoading;
   // Background transfers always yield to visible interactions and never load
-  // third-party the embedded page pages. Those pages load only after a school is opened.
+  // third-party Baidu pages. Those pages load only after a school is opened.
   if (document.hidden || !navigator.onLine) return;
   if (suppressSchoolNavigation || activeCollapse || portfolioInteractionLocked
     || activityInteractionLocked || hasForegroundMediaLoading()) {
@@ -1097,15 +892,11 @@ function startBackgroundMediaLoading() {
 
 if (document.readyState === "complete") startBackgroundMediaLoading();
 else window.addEventListener("load", startBackgroundMediaLoading, { once: true });
-if (document.readyState === "complete") startBackgroundPageLoading();
-else window.addEventListener("load", startBackgroundPageLoading, { once: true });
 document.addEventListener("visibilitychange", () => {
   scheduleBackgroundMediaLoading();
-  scheduleBackgroundPageLoading();
 });
 window.addEventListener("online", () => {
   scheduleBackgroundMediaLoading();
-  scheduleBackgroundPageLoading();
 });
 document.addEventListener("click", (event) => {
   if (event.target.closest("summary, .paper-fulltext, .portfolio-image-trigger")) {
@@ -1493,7 +1284,6 @@ portfolioSections.forEach((section) => {
   if (section.open) loadPortfolioProject(section);
 
   const summary = section.querySelector(":scope > summary");
-
   summary?.addEventListener("click", (event) => {
     if (suppressSchoolNavigation) return;
 
@@ -1588,7 +1378,7 @@ if (schoolList) {
   schoolStage = document.createElement("div");
   schoolStage.className = "school-stage";
   schoolStage.setAttribute("role", "region");
-  educationSection.append(schoolStage);
+  schoolSections[0].after(schoolStage);
 }
 
 function getSchoolBody(section) {
@@ -1612,7 +1402,6 @@ function restoreStagedSchoolBody(section = null) {
 function moveSchoolBodyToStage(section) {
   const body = getSchoolBody(section);
   if (!body || !schoolStage) return;
-  clearBackgroundSchoolBody(body);
   restoreStagedSchoolBody();
   if (schoolStage.moveBefore) schoolStage.moveBefore(body, null);
   else schoolStage.append(body);
@@ -1633,7 +1422,7 @@ function getSchoolMotionElements() {
   const footer = document.querySelector(".resume-footer");
   if (footer) followingElements.push(footer);
 
-  return [...schoolSections, ...followingElements];
+  return [...schoolSections, ...schoolList.querySelectorAll(".school-record"), ...followingElements];
 }
 
 function runSchoolTransition(previousPositions, motionElements, targetSection) {
@@ -1683,9 +1472,6 @@ function toggleSchoolSection(section) {
   markSectionOpened(section);
   moveSchoolBodyToStage(section);
 
-  const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
-  if (frame) loadEmbeddedPage(frame);
-
   const layoutTransition = runSchoolTransition(previousPositions, motionElements, section);
   const navigationScroll = scrollNavigationToTop(educationSection);
   revealPortfolioElement(getSchoolBody(section));
@@ -1700,8 +1486,6 @@ schoolSections.forEach((section) => {
   if (section.open) {
     section.classList.add("school-card--active");
     moveSchoolBodyToStage(section);
-    const frame = getSchoolBody(section)?.querySelector(".baike-window iframe");
-    if (frame) loadEmbeddedPage(frame);
   }
 
   summary?.addEventListener("click", (event) => {
@@ -1768,6 +1552,7 @@ function closeExpandableSection(section) {
   }
 
   section.open = false;
+  section.classList.remove("expandable-button--closing");
   if (section.classList.contains("paper-card")) updatePaperNavigation();
   updatePortfolioNavigation();
 }
@@ -1889,6 +1674,7 @@ function startAnimatedCollapse(section, motionElements = getPortfolioMotionEleme
     schedulePortfolioStickyUpdate();
   };
 
+  section.classList.add("expandable-button--closing");
   section.classList.remove("school-card--active", "paper-card--active", "portfolio-card--active", "portfolio-subcard--active", "activity-group--active");
   if (section.classList.contains("school-card")) {
     educationSection?.classList.remove("education--expanded");
@@ -2109,8 +1895,10 @@ function expandForPrint() {
   restoreStagedActivityBody();
   restoreStagedSchoolBody();
   restoreStagedPaperBody();
-  embeddedPages.forEach(loadEmbeddedPage);
-  portfolioSections.forEach(loadPortfolioProject);
+  const printablePortfolioSections = portfolioSections.filter(
+    (section) => section.dataset.portfolioTail !== "true",
+  );
+  printablePortfolioSections.forEach(loadPortfolioProject);
   restoreAllPortfolioSubstages();
 
   const printableSections = Array.from(document.querySelectorAll("details"));
@@ -2120,10 +1908,18 @@ function expandForPrint() {
   }
 
   printableSections.forEach((item) => {
-    item.open = true;
+    if (item.matches(".school-card")) {
+      item.open = false;
+    } else if (item.matches(".paper-card, .activity-group")) {
+      item.open = true;
+    } else if (item.matches(".portfolio-card")) {
+      item.open = item.dataset.portfolioTail !== "true";
+    } else {
+      item.open = false;
+    }
   });
-  activateDeferredImages(document);
-  prioritizePortfolioImages(document);
+  activateDeferredImages(document.querySelector("#art-practice"));
+  prioritizePortfolioImages(document.querySelector("#art-practice"));
 }
 
 function restoreAfterPrint() {
@@ -2176,8 +1972,116 @@ function restoreAfterPrint() {
 }
 
 downloadButton?.addEventListener("click", () => {
-  window.open("blank.html", "_blank", "noopener,noreferrer");
+  expandForPrint();
+  window.setTimeout(() => window.print(), 500);
 });
 
 window.addEventListener("beforeprint", expandForPrint);
 window.addEventListener("afterprint", restoreAfterPrint);
+
+// One proximity cue shared by all visible links, buttons and disclosures.
+// Pointer coordinates remain entirely local and are never sent elsewhere.
+(() => {
+  const root = document.body;
+  if (!root) return;
+  const selector = ".resume-page :is(a[href], button, details > summary):not(.portfolio-image-trigger), dialog[open] :is(a[href], button):not(.portfolio-image-trigger)";
+  const finePointer = matchMedia("(any-hover: hover) and (any-pointer: fine)");
+  let mouse = null;
+  let frame = 0;
+  let followUntil = 0;
+  let highlighted = null;
+  let highlightedState = "";
+
+  function labelFor(control) {
+    if (control.matches("summary")) {
+      return control.querySelector(".school-card__name, .paper-card__title, .portfolio-work__name")
+        || control.querySelector(":scope > span, :scope > h3, :scope > h2") || control;
+    }
+    return control.querySelector(".expand-action-label") || control;
+  }
+
+  function setHighlight(control, state = "") {
+    if (control === highlighted && state === highlightedState) return;
+    highlighted?.classList.remove("is-nearest-expander", "is-hovered-expander");
+    highlighted = control;
+    highlightedState = state;
+    if (control) control.classList.add(state);
+  }
+
+  function visibleRects(control, label) {
+    if (control.matches(':disabled, [aria-disabled="true"]') || control.closest('[inert], [hidden], .collapse-shell')) return [];
+    if (control.checkVisibility && !control.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return [];
+    const style = getComputedStyle(control);
+    if (style.visibility !== "visible" || Number(style.opacity) === 0) return [];
+    const modal = document.querySelector("dialog[open]");
+    if (modal && !modal.contains(control)) return [];
+    // Use actual text fragments so wrapped labels and partly visible rows work.
+    return [...label.getClientRects()].map(rect => ({
+      left: Math.max(0, rect.left), top: Math.max(0, rect.top),
+      right: Math.min(innerWidth, rect.right), bottom: Math.min(innerHeight, rect.bottom),
+    })).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
+  }
+
+  function update() {
+    frame = 0;
+    const pointer = finePointer.matches ? mouse : null;
+    const anchor = pointer || { x: innerWidth / 2, y: innerHeight / 2 };
+    const underPointer = pointer ? document.elementFromPoint(pointer.x, pointer.y)?.closest(selector) : null;
+    let nearest = null;
+    let distance = Infinity;
+    let hovered = null;
+    for (const control of root.querySelectorAll(selector)) {
+      const label = labelFor(control);
+      if (!label.textContent.trim()) continue;
+      control.classList.add("expandable-control");
+      label.classList.add("expandable-label");
+      const rects = visibleRects(control, label);
+      if (!rects.length) continue;
+      if (control === underPointer) hovered = control;
+      for (const rect of rects) {
+        const dx = Math.max(rect.left - anchor.x, 0, anchor.x - rect.right);
+        const dy = Math.max(rect.top - anchor.y, 0, anchor.y - rect.bottom);
+        const value = dx * dx + dy * dy;
+        if (value < distance) { distance = value; nearest = control; }
+      }
+    }
+    setHighlight(hovered || nearest, hovered ? "is-hovered-expander" : "is-nearest-expander");
+    if (performance.now() < followUntil) schedule();
+  }
+
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(update);
+  }
+  function followLayout() {
+    followUntil = performance.now() + 900;
+    schedule();
+  }
+  function forgetMouse() { mouse = null; schedule(); }
+  document.addEventListener("pointermove", event => {
+    mouse = event.pointerType === "mouse" && finePointer.matches
+      ? { x: event.clientX, y: event.clientY } : null;
+    schedule();
+  }, { passive: true });
+  document.addEventListener("pointerdown", event => {
+    if (event.pointerType !== "mouse") forgetMouse();
+  }, { passive: true });
+  document.addEventListener("pointerout", event => {
+    if (!event.relatedTarget) forgetMouse();
+  }, { passive: true });
+  window.addEventListener("blur", forgetMouse);
+  window.addEventListener("resize", schedule);
+  document.addEventListener("scroll", schedule, { capture: true, passive: true });
+  document.addEventListener("visibilitychange", forgetMouse);
+  document.addEventListener("toggle", followLayout, true);
+  document.addEventListener("close", schedule, true);
+  root.addEventListener("click", followLayout);
+  root.addEventListener("transitionend", schedule);
+  root.addEventListener("animationend", schedule);
+  finePointer.addEventListener("change", forgetMouse);
+  new MutationObserver(schedule).observe(document.body, {
+    subtree: true, childList: true, attributes: true, attributeFilter: ["open", "hidden"],
+  });
+  new ResizeObserver(schedule).observe(root);
+  document.fonts?.ready.then(schedule);
+  schedule();
+})();
